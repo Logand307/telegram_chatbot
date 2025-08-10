@@ -100,15 +100,18 @@ async function initializeBot() {
     // Try different webhook methods
     try {
       console.log('Setting webhook...');
+      const webhookUrl = `${WEBHOOK_URL}${WEBHOOK_PATH}`.replace(/\/+/g, '/');
+      console.log('Constructed webhook URL:', webhookUrl);
+      
       if (typeof bot.setWebHook === 'function') {
-        await bot.setWebHook(`${WEBHOOK_URL}${WEBHOOK_PATH}`);
-        console.log(`Webhook set to: ${WEBHOOK_URL}${WEBHOOK_PATH}`);
+        await bot.setWebHook(webhookUrl);
+        console.log(`Webhook set to: ${webhookUrl}`);
       } else if (typeof bot.setWebhook === 'function') {
-        await bot.setWebhook(`${WEBHOOK_URL}${WEBHOOK_PATH}`);
-        console.log(`Webhook set to: ${WEBHOOK_URL}${WEBHOOK_PATH}`);
+        await bot.setWebhook(webhookUrl);
+        console.log(`Webhook set to: ${webhookUrl}`);
       } else if (typeof bot.setWebhookUrl === 'function') {
-        await bot.setWebhookUrl(`${WEBHOOK_URL}${WEBHOOK_PATH}`);
-        console.log(`Webhook set to: ${WEBHOOK_URL}${WEBHOOK_PATH}`);
+        await bot.setWebhookUrl(webhookUrl);
+        console.log(`Webhook set to: ${webhookUrl}`);
       } else {
         // Try to find the correct method
         const webhookMethod = Object.getOwnPropertyNames(Object.getPrototypeOf(bot)).find(m => 
@@ -116,8 +119,8 @@ async function initializeBot() {
         );
         if (webhookMethod) {
           console.log(`Found webhook method: ${webhookMethod}`);
-          await bot[webhookMethod](`${WEBHOOK_URL}${WEBHOOK_PATH}`);
-          console.log(`Webhook set to: ${WEBHOOK_URL}${WEBHOOK_PATH}`);
+          await bot[webhookMethod](webhookUrl);
+          console.log(`Webhook set to: ${webhookUrl}`);
         } else {
           throw new Error('No webhook method found on bot object');
         }
@@ -366,7 +369,8 @@ async function startServer() {
       console.log(`🌍 Environment: ${NODE_ENV}`);
       console.log(`🤖 Bot mode: ${isWebhookMode ? 'Webhook' : 'Polling'}`);
       if (isWebhookMode) {
-        console.log(`🔗 Webhook URL: ${WEBHOOK_URL}${WEBHOOK_PATH}`);
+        const cleanWebhookUrl = `${WEBHOOK_URL}${WEBHOOK_PATH}`.replace(/\/+/g, '/');
+        console.log(`🔗 Webhook URL: ${cleanWebhookUrl}`);
       }
     });
   } catch (error) {

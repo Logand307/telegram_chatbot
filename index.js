@@ -81,7 +81,8 @@ async function initializeBot() {
     console.log('Creating bot in webhook mode...');
     // Dynamically import TelegramBot
     try {
-      TelegramBot = (await import('node-telegram-bot-api')).TelegramBot;
+      const telegramModule = await import('node-telegram-bot-api');
+      TelegramBot = telegramModule.default;
       bot = new TelegramBot(TELEGRAM_BOT_TOKEN, { polling: false });
       console.log('Bot created, type:', typeof bot);
       console.log('Bot methods:', Object.getOwnPropertyNames(Object.getPrototypeOf(bot)));
@@ -119,7 +120,8 @@ async function initializeBot() {
     console.log('Creating bot in polling mode...');
     // Dynamically import TelegramBot
     try {
-      TelegramBot = (await import('node-telegram-bot-api')).TelegramBot;
+      const telegramModule = await import('node-telegram-bot-api');
+      TelegramBot = telegramModule.default;
       bot = new TelegramBot(TELEGRAM_BOT_TOKEN, { polling: true });
       console.log('Bot created, type:', typeof bot);
       console.log('Bot methods:', Object.getOwnPropertyNames(Object.getPrototypeOf(bot)));

@@ -69,13 +69,23 @@ let bot;
 let isWebhookMode = false;
 
 async function initializeBot() {
+  console.log('Starting bot initialization...');
+  console.log('WEBHOOK_URL:', WEBHOOK_URL);
+  console.log('NODE_ENV:', NODE_ENV);
+  console.log('TELEGRAM_BOT_TOKEN exists:', !!TELEGRAM_BOT_TOKEN);
+  
   if (WEBHOOK_URL && NODE_ENV === 'production') {
     // Webhook mode for production/pipeline
+    console.log('Creating bot in webhook mode...');
     bot = new TelegramBot(TELEGRAM_BOT_TOKEN, { polling: false });
+    console.log('Bot created, type:', typeof bot);
+    console.log('Bot methods:', Object.getOwnPropertyNames(Object.getPrototypeOf(bot)));
+    
     isWebhookMode = true;
     
     // Set webhook
     try {
+      console.log('Setting webhook...');
       await bot.setWebhook(`${WEBHOOK_URL}${WEBHOOK_PATH}`);
       console.log(`Webhook set to: ${WEBHOOK_URL}${WEBHOOK_PATH}`);
     } catch (error) {
@@ -97,6 +107,7 @@ async function initializeBot() {
     console.log('Bot running in webhook mode');
   } else {
     // Polling mode for development
+    console.log('Creating bot in polling mode...');
     bot = new TelegramBot(TELEGRAM_BOT_TOKEN, { polling: true });
     console.log('Bot running in polling mode');
   }

@@ -22,8 +22,10 @@ jobs:
       - name: Install dependencies
         run: npm ci
         
+      - name: Install Railway CLI
+        run: npm install -g @railway/cli
+        
       - name: Deploy to Railway
-        uses: railway/deploy@main
-        with:
-          service: telegram-bot
-          # Railway will use the RAILWAY_TOKEN secret from GitHub
+        run: railway up --service telegram-bot
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}

@@ -100,7 +100,10 @@ async function initializeBot() {
     // Try different webhook methods
     try {
       console.log('Setting webhook...');
-      if (typeof bot.setWebhook === 'function') {
+      if (typeof bot.setWebHook === 'function') {
+        await bot.setWebHook(`${WEBHOOK_URL}${WEBHOOK_PATH}`);
+        console.log(`Webhook set to: ${WEBHOOK_URL}${WEBHOOK_PATH}`);
+      } else if (typeof bot.setWebhook === 'function') {
         await bot.setWebhook(`${WEBHOOK_URL}${WEBHOOK_PATH}`);
         console.log(`Webhook set to: ${WEBHOOK_URL}${WEBHOOK_PATH}`);
       } else if (typeof bot.setWebhookUrl === 'function') {
@@ -328,12 +331,12 @@ async function startServer() {
         console.log('Request headers:', req.headers);
         
         try {
-          if (typeof bot.handleUpdate === 'function') {
-            console.log('Using handleUpdate method');
-            await bot.handleUpdate(req.body);
-          } else if (typeof bot.processUpdate === 'function') {
+          if (typeof bot.processUpdate === 'function') {
             console.log('Using processUpdate method');
             await bot.processUpdate(req.body);
+          } else if (typeof bot.handleUpdate === 'function') {
+            console.log('Using handleUpdate method');
+            await bot.handleUpdate(req.body);
           } else {
             // Try to find the correct method
             const updateMethod = Object.getOwnPropertyNames(Object.getPrototypeOf(bot)).find(m => 

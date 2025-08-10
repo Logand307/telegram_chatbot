@@ -93,6 +93,10 @@ async function initializeBot() {
     
     isWebhookMode = true;
     
+    // Set up bot handlers FIRST
+    console.log('Setting up bot handlers...');
+    setupBotHandlers(bot);
+    
     // Try different webhook methods
     try {
       console.log('Setting webhook...');
@@ -120,32 +124,6 @@ async function initializeBot() {
       throw error;
     }
     
-    // Webhook endpoint
-    app.post(WEBHOOK_PATH, async (req, res) => {
-      try {
-        if (typeof bot.handleUpdate === 'function') {
-          await bot.handleUpdate(req.body);
-        } else if (typeof bot.processUpdate === 'function') {
-          await bot.processUpdate(req.body);
-        } else {
-          // Try to find the correct method
-          const updateMethod = Object.getOwnPropertyNames(Object.getPrototypeOf(bot)).find(m => 
-            (m.toLowerCase().includes('update') || m.toLowerCase().includes('process')) && typeof bot[m] === 'function'
-          );
-          if (updateMethod) {
-            console.log(`Found update method: ${updateMethod}`);
-            await bot[updateMethod](req.body);
-          } else {
-            throw new Error('No update handling method found on bot object');
-          }
-        }
-        res.sendStatus(200);
-      } catch (error) {
-        console.error('Webhook error:', error);
-        res.sendStatus(500);
-      }
-    });
-    
     console.log('Bot running in webhook mode');
   } else {
     // Polling mode for development
@@ -157,6 +135,11 @@ async function initializeBot() {
     console.log('Bot own properties:', Object.getOwnPropertyNames(bot));
     console.log('Bot setWebhook method:', typeof bot.setWebhook);
     console.log('Bot handleUpdate method:', typeof bot.handleUpdate);
+    
+    // Set up bot handlers for polling mode
+    console.log('Setting up bot handlers...');
+    setupBotHandlers(bot);
+    
     console.log('Bot running in polling mode');
   }
 }
@@ -336,8 +319,42 @@ async function startServer() {
   try {
     await initializeBot();
     
-    // Setup bot handlers after bot is initialized
-    setupBotHandlers(bot);
+    // Set up webhook endpoint AFTER bot is initialized (for webhook mode)
+    if (isWebhookMode) {
+      console.log('Setting up webhook endpoint...');
+      app.post(WEBHOOK_PATH, async (req, res) => {
+        console.log('Webhook received!');
+        console.log('Request body:', JSON.stringify(req.body, null, 2));
+        console.log('Request headers:', req.headers);
+        
+        try {
+          if (typeof bot.handleUpdate === 'function') {
+            console.log('Using handleUpdate method');
+            await bot.handleUpdate(req.body);
+          } else if (typeof bot.processUpdate === 'function') {
+            console.log('Using processUpdate method');
+            await bot.processUpdate(req.body);
+          } else {
+            // Try to find the correct method
+            const updateMethod = Object.getOwnPropertyNames(Object.getPrototypeOf(bot)).find(m => 
+              (m.toLowerCase().includes('update') || m.toLowerCase().includes('process')) && typeof bot[m] === 'function'
+            );
+            if (updateMethod) {
+              console.log(`Found update method: ${updateMethod}`);
+              await bot[updateMethod](req.body);
+            } else {
+              throw new Error('No update handling method found on bot object');
+            }
+          }
+          console.log('Webhook processed successfully');
+          res.sendStatus(200);
+        } catch (error) {
+          console.error('Webhook error:', error);
+          res.sendStatus(500);
+        }
+      });
+      console.log(`Webhook endpoint set up at ${WEBHOOK_PATH}`);
+    }
 
     // Start HTTP server
     server.listen(PORT, () => {
@@ -345,6 +362,9 @@ async function startServer() {
       console.log(`📊 Health check: http://localhost:${PORT}/health`);
       console.log(`🌍 Environment: ${NODE_ENV}`);
       console.log(`🤖 Bot mode: ${isWebhookMode ? 'Webhook' : 'Polling'}`);
+      if (isWebhookMode) {
+        console.log(`🔗 Webhook URL: ${WEBHOOK_URL}${WEBHOOK_PATH}`);
+      }
     });
   } catch (error) {
     console.error('Failed to start server:', error);

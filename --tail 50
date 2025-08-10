@@ -1,0 +1,5 @@
+[33m05c9464[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m)[m Fix bot initialization and add debugging
+[33mcb9415a[m Simplify deployment workflow
+[33mb21a2ab[m Fix Railway CLI authentication and deployment
+[33m5e1b87c[m Switch to Railway CLI deployment
+[33m2510d7e[m Update to Railway deploy@main action

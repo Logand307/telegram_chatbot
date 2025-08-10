@@ -85,7 +85,11 @@ async function initializeBot() {
       TelegramBot = telegramModule.default;
       bot = new TelegramBot(TELEGRAM_BOT_TOKEN, { polling: false });
       console.log('Bot created, type:', typeof bot);
-      console.log('Bot methods:', Object.getOwnPropertyNames(Object.getPrototypeOf(bot)));
+      console.log('Bot constructor:', TelegramBot);
+      console.log('Bot prototype methods:', Object.getOwnPropertyNames(Object.getPrototypeOf(bot)));
+      console.log('Bot own properties:', Object.getOwnPropertyNames(bot));
+      console.log('Bot setWebhook method:', typeof bot.setWebhook);
+      console.log('Bot handleUpdate method:', typeof bot.handleUpdate);
     } catch (error) {
       console.error('Failed to import node-telegram-bot-api or create bot:', error);
       throw error;
@@ -124,7 +128,11 @@ async function initializeBot() {
       TelegramBot = telegramModule.default;
       bot = new TelegramBot(TELEGRAM_BOT_TOKEN, { polling: true });
       console.log('Bot created, type:', typeof bot);
-      console.log('Bot methods:', Object.getOwnPropertyNames(Object.getPrototypeOf(bot)));
+      console.log('Bot constructor:', TelegramBot);
+      console.log('Bot prototype methods:', Object.getOwnPropertyNames(Object.getPrototypeOf(bot)));
+      console.log('Bot own properties:', Object.getOwnPropertyNames(bot));
+      console.log('Bot setWebhook method:', typeof bot.setWebhook);
+      console.log('Bot handleUpdate method:', typeof bot.handleUpdate);
     } catch (error) {
       console.error('Failed to import node-telegram-bot-api or create bot:', error);
       throw error;

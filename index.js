@@ -100,7 +100,10 @@ async function initializeBot() {
     // Try different webhook methods
     try {
       console.log('Setting webhook...');
-      const webhookUrl = `${WEBHOOK_URL}${WEBHOOK_PATH}`.replace(/\/+/g, '/');
+      // Ensure proper URL construction - don't remove protocol slashes
+      const webhookUrl = WEBHOOK_URL.endsWith('/') 
+        ? `${WEBHOOK_URL}${WEBHOOK_PATH.slice(1)}` 
+        : `${WEBHOOK_URL}${WEBHOOK_PATH}`;
       console.log('Constructed webhook URL:', webhookUrl);
       
       if (typeof bot.setWebHook === 'function') {
@@ -369,7 +372,9 @@ async function startServer() {
       console.log(`🌍 Environment: ${NODE_ENV}`);
       console.log(`🤖 Bot mode: ${isWebhookMode ? 'Webhook' : 'Polling'}`);
       if (isWebhookMode) {
-        const cleanWebhookUrl = `${WEBHOOK_URL}${WEBHOOK_PATH}`.replace(/\/+/g, '/');
+        const cleanWebhookUrl = WEBHOOK_URL.endsWith('/') 
+          ? `${WEBHOOK_URL}${WEBHOOK_PATH.slice(1)}` 
+          : `${WEBHOOK_URL}${WEBHOOK_PATH}`;
         console.log(`🔗 Webhook URL: ${cleanWebhookUrl}`);
       }
     });

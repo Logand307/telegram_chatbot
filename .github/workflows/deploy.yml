@@ -23,7 +23,7 @@ jobs:
         run: npm ci
         
       - name: Deploy to Railway
-        uses: railway/deploy@v1
+        uses: railway/deploy@main
         with:
           service: telegram-bot
           # Railway will use the RAILWAY_TOKEN secret from GitHub

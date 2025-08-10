@@ -1,6 +1,6 @@
 // index.js — Telegram bot + RAG (Azure AI Search) + Azure OpenAI (Option B full URL)
 require('dotenv/config');
-const TelegramBot = require('node-telegram-bot-api');
+const TelegramBot = require('node-telegram-bot-api').default || require('node-telegram-bot-api');
 const axios = require('axios');
 const { SearchClient, AzureKeyCredential } = require('@azure/search-documents');
 const express = require('express');
@@ -85,13 +85,36 @@ async function initializeBot() {
     console.log('Bot setWebhook method:', typeof bot.setWebhook);
     console.log('Bot handleUpdate method:', typeof bot.handleUpdate);
     
+    // Check if it's a different method name
+    console.log('Available methods containing "webhook":', 
+      Object.getOwnPropertyNames(Object.getPrototypeOf(bot)).filter(m => m.toLowerCase().includes('webhook')));
+    console.log('Available methods containing "update":', 
+      Object.getOwnPropertyNames(Object.getPrototypeOf(bot)).filter(m => m.toLowerCase().includes('update')));
+    
     isWebhookMode = true;
     
-    // Set webhook
+    // Try different webhook methods
     try {
       console.log('Setting webhook...');
-      await bot.setWebhook(`${WEBHOOK_URL}${WEBHOOK_PATH}`);
-      console.log(`Webhook set to: ${WEBHOOK_URL}${WEBHOOK_PATH}`);
+      if (typeof bot.setWebhook === 'function') {
+        await bot.setWebhook(`${WEBHOOK_URL}${WEBHOOK_PATH}`);
+        console.log(`Webhook set to: ${WEBHOOK_URL}${WEBHOOK_PATH}`);
+      } else if (typeof bot.setWebhookUrl === 'function') {
+        await bot.setWebhookUrl(`${WEBHOOK_URL}${WEBHOOK_PATH}`);
+        console.log(`Webhook set to: ${WEBHOOK_URL}${WEBHOOK_PATH}`);
+      } else {
+        // Try to find the correct method
+        const webhookMethod = Object.getOwnPropertyNames(Object.getPrototypeOf(bot)).find(m => 
+          m.toLowerCase().includes('webhook') && typeof bot[m] === 'function'
+        );
+        if (webhookMethod) {
+          console.log(`Found webhook method: ${webhookMethod}`);
+          await bot[webhookMethod](`${WEBHOOK_URL}${WEBHOOK_PATH}`);
+          console.log(`Webhook set to: ${WEBHOOK_URL}${WEBHOOK_PATH}`);
+        } else {
+          throw new Error('No webhook method found on bot object');
+        }
+      }
     } catch (error) {
       console.error('Failed to set webhook:', error);
       throw error;
@@ -100,7 +123,22 @@ async function initializeBot() {
     // Webhook endpoint
     app.post(WEBHOOK_PATH, async (req, res) => {
       try {
-        await bot.handleUpdate(req.body);
+        if (typeof bot.handleUpdate === 'function') {
+          await bot.handleUpdate(req.body);
+        } else if (typeof bot.processUpdate === 'function') {
+          await bot.processUpdate(req.body);
+        } else {
+          // Try to find the correct method
+          const updateMethod = Object.getOwnPropertyNames(Object.getPrototypeOf(bot)).find(m => 
+            (m.toLowerCase().includes('update') || m.toLowerCase().includes('process')) && typeof bot[m] === 'function'
+          );
+          if (updateMethod) {
+            console.log(`Found update method: ${updateMethod}`);
+            await bot[updateMethod](req.body);
+          } else {
+            throw new Error('No update handling method found on bot object');
+          }
+        }
         res.sendStatus(200);
       } catch (error) {
         console.error('Webhook error:', error);

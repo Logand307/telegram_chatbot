@@ -1,10 +1,10 @@
 // index.js — Telegram bot + RAG (Azure AI Search) + Azure OpenAI (Option B full URL)
-import 'dotenv/config';
-import TelegramBot from 'node-telegram-bot-api';
-import axios from 'axios';
-import { SearchClient, AzureKeyCredential } from '@azure/search-documents';
-import express from 'express';
-import { createServer } from 'http';
+require('dotenv/config');
+const TelegramBot = require('node-telegram-bot-api');
+const axios = require('axios');
+const { SearchClient, AzureKeyCredential } = require('@azure/search-documents');
+const express = require('express');
+const { createServer } = require('http');
 
 /* ==== Env validation ==== */
 const {

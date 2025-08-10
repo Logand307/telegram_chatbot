@@ -1,12 +1,10 @@
 // index.js — Telegram bot + RAG (Azure AI Search) + Azure OpenAI (Option B full URL)
 import 'dotenv/config';
+import TelegramBot from 'node-telegram-bot-api';
 import axios from 'axios';
 import { SearchClient, AzureKeyCredential } from '@azure/search-documents';
 import express from 'express';
 import { createServer } from 'http';
-
-// Dynamic import for Telegram bot
-let TelegramBot;
 
 /* ==== Env validation ==== */
 const {
@@ -79,21 +77,13 @@ async function initializeBot() {
   if (WEBHOOK_URL && NODE_ENV === 'production') {
     // Webhook mode for production/pipeline
     console.log('Creating bot in webhook mode...');
-    // Dynamically import TelegramBot
-    try {
-      const telegramModule = await import('node-telegram-bot-api');
-      TelegramBot = telegramModule.default;
-      bot = new TelegramBot(TELEGRAM_BOT_TOKEN, { polling: false });
-      console.log('Bot created, type:', typeof bot);
-      console.log('Bot constructor:', TelegramBot);
-      console.log('Bot prototype methods:', Object.getOwnPropertyNames(Object.getPrototypeOf(bot)));
-      console.log('Bot own properties:', Object.getOwnPropertyNames(bot));
-      console.log('Bot setWebhook method:', typeof bot.setWebhook);
-      console.log('Bot handleUpdate method:', typeof bot.handleUpdate);
-    } catch (error) {
-      console.error('Failed to import node-telegram-bot-api or create bot:', error);
-      throw error;
-    }
+    bot = new TelegramBot(TELEGRAM_BOT_TOKEN, { polling: false });
+    console.log('Bot created, type:', typeof bot);
+    console.log('Bot constructor:', TelegramBot);
+    console.log('Bot prototype methods:', Object.getOwnPropertyNames(Object.getPrototypeOf(bot)));
+    console.log('Bot own properties:', Object.getOwnPropertyNames(bot));
+    console.log('Bot setWebhook method:', typeof bot.setWebhook);
+    console.log('Bot handleUpdate method:', typeof bot.handleUpdate);
     
     isWebhookMode = true;
     
@@ -122,21 +112,13 @@ async function initializeBot() {
   } else {
     // Polling mode for development
     console.log('Creating bot in polling mode...');
-    // Dynamically import TelegramBot
-    try {
-      const telegramModule = await import('node-telegram-bot-api');
-      TelegramBot = telegramModule.default;
-      bot = new TelegramBot(TELEGRAM_BOT_TOKEN, { polling: true });
-      console.log('Bot created, type:', typeof bot);
-      console.log('Bot constructor:', TelegramBot);
-      console.log('Bot prototype methods:', Object.getOwnPropertyNames(Object.getPrototypeOf(bot)));
-      console.log('Bot own properties:', Object.getOwnPropertyNames(bot));
-      console.log('Bot setWebhook method:', typeof bot.setWebhook);
-      console.log('Bot handleUpdate method:', typeof bot.handleUpdate);
-    } catch (error) {
-      console.error('Failed to import node-telegram-bot-api or create bot:', error);
-      throw error;
-    }
+    bot = new TelegramBot(TELEGRAM_BOT_TOKEN, { polling: true });
+    console.log('Bot created, type:', typeof bot);
+    console.log('Bot constructor:', TelegramBot);
+    console.log('Bot prototype methods:', Object.getOwnPropertyNames(Object.getPrototypeOf(bot)));
+    console.log('Bot own properties:', Object.getOwnPropertyNames(bot));
+    console.log('Bot setWebhook method:', typeof bot.setWebhook);
+    console.log('Bot handleUpdate method:', typeof bot.handleUpdate);
     console.log('Bot running in polling mode');
   }
 }

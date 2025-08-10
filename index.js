@@ -1,11 +1,12 @@
 // index.js — Telegram bot + RAG (Azure AI Search) + Azure OpenAI (Option B full URL)
 import 'dotenv/config';
-import pkg from 'node-telegram-bot-api';
-const { default: TelegramBot } = pkg;
 import axios from 'axios';
 import { SearchClient, AzureKeyCredential } from '@azure/search-documents';
 import express from 'express';
 import { createServer } from 'http';
+
+// Dynamic import for Telegram bot
+let TelegramBot;
 
 /* ==== Env validation ==== */
 const {
@@ -78,9 +79,16 @@ async function initializeBot() {
   if (WEBHOOK_URL && NODE_ENV === 'production') {
     // Webhook mode for production/pipeline
     console.log('Creating bot in webhook mode...');
-    bot = new TelegramBot(TELEGRAM_BOT_TOKEN, { polling: false });
-    console.log('Bot created, type:', typeof bot);
-    console.log('Bot methods:', Object.getOwnPropertyNames(Object.getPrototypeOf(bot)));
+    // Dynamically import TelegramBot
+    try {
+      TelegramBot = (await import('node-telegram-bot-api')).TelegramBot;
+      bot = new TelegramBot(TELEGRAM_BOT_TOKEN, { polling: false });
+      console.log('Bot created, type:', typeof bot);
+      console.log('Bot methods:', Object.getOwnPropertyNames(Object.getPrototypeOf(bot)));
+    } catch (error) {
+      console.error('Failed to import node-telegram-bot-api or create bot:', error);
+      throw error;
+    }
     
     isWebhookMode = true;
     
@@ -109,7 +117,16 @@ async function initializeBot() {
   } else {
     // Polling mode for development
     console.log('Creating bot in polling mode...');
-    bot = new TelegramBot(TELEGRAM_BOT_TOKEN, { polling: true });
+    // Dynamically import TelegramBot
+    try {
+      TelegramBot = (await import('node-telegram-bot-api')).TelegramBot;
+      bot = new TelegramBot(TELEGRAM_BOT_TOKEN, { polling: true });
+      console.log('Bot created, type:', typeof bot);
+      console.log('Bot methods:', Object.getOwnPropertyNames(Object.getPrototypeOf(bot)));
+    } catch (error) {
+      console.error('Failed to import node-telegram-bot-api or create bot:', error);
+      throw error;
+    }
     console.log('Bot running in polling mode');
   }
 }

@@ -2,10 +2,17 @@
   "name": "telegram-azure-gpt-bot",
   "version": "1.0.0",
   "type": "module",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node index.js",
+    "prod": "node index.js",
+    "docker": "docker build -t telegram-rag-bot . && docker run -p 3000:3000 --env-file .env telegram-rag-bot"
+  },
   "dependencies": {
     "@azure/search-documents": "^12.1.0",
     "axios": "^1.11.0",
     "dotenv": "^16.6.1",
+    "express": "^4.18.2",
     "node-telegram-bot-api": "^0.66.0",
     "p-retry": "^6.0.0"
   }

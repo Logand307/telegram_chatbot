@@ -3,6 +3,8 @@ import 'dotenv/config';
 import TelegramBot from 'node-telegram-bot-api';
 import axios from 'axios';
 import { SearchClient, AzureKeyCredential } from '@azure/search-documents';
+import express from 'express';
+import { createServer } from 'http';
 
 /* ==== Env validation ==== */
 const {
@@ -15,7 +17,12 @@ const {
   // Azure AI Search
   AZURE_SEARCH_ENDPOINT,
   AZURE_SEARCH_API_KEY,
-  AZURE_SEARCH_INDEX
+  AZURE_SEARCH_INDEX,
+  // Pipeline/Deployment configuration
+  PORT = 3000,
+  WEBHOOK_URL,
+  WEBHOOK_PATH = '/webhook',
+  NODE_ENV = 'development'
 } = process.env;
 
 function ensure(name, val) {
@@ -29,9 +36,73 @@ ensure('AZURE_SEARCH_ENDPOINT', AZURE_SEARCH_ENDPOINT);
 ensure('AZURE_SEARCH_API_KEY', AZURE_SEARCH_API_KEY);
 ensure('AZURE_SEARCH_INDEX', AZURE_SEARCH_INDEX);
 
-/* ==== Clients ==== */
-const bot = new TelegramBot(TELEGRAM_BOT_TOKEN, { polling: true });
+/* ==== Express app setup ==== */
+const app = express();
+const server = createServer(app);
 
+// Middleware
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+// Health check endpoint for pipeline monitoring
+app.get('/health', (req, res) => {
+  res.status(200).json({
+    status: 'healthy',
+    timestamp: new Date().toISOString(),
+    environment: NODE_ENV,
+    uptime: process.uptime()
+  });
+});
+
+// Root endpoint
+app.get('/', (req, res) => {
+  res.json({
+    name: 'Telegram RAG Bot',
+    status: 'running',
+    environment: NODE_ENV,
+    timestamp: new Date().toISOString()
+  });
+});
+
+/* ==== Bot initialization ==== */
+let bot;
+let isWebhookMode = false;
+
+async function initializeBot() {
+  if (WEBHOOK_URL && NODE_ENV === 'production') {
+    // Webhook mode for production/pipeline
+    bot = new TelegramBot(TELEGRAM_BOT_TOKEN, { polling: false });
+    isWebhookMode = true;
+    
+    // Set webhook
+    try {
+      await bot.setWebhook(`${WEBHOOK_URL}${WEBHOOK_PATH}`);
+      console.log(`Webhook set to: ${WEBHOOK_URL}${WEBHOOK_PATH}`);
+    } catch (error) {
+      console.error('Failed to set webhook:', error);
+      throw error;
+    }
+    
+    // Webhook endpoint
+    app.post(WEBHOOK_PATH, async (req, res) => {
+      try {
+        await bot.handleUpdate(req.body);
+        res.sendStatus(200);
+      } catch (error) {
+        console.error('Webhook error:', error);
+        res.sendStatus(500);
+      }
+    });
+    
+    console.log('Bot running in webhook mode');
+  } else {
+    // Polling mode for development
+    bot = new TelegramBot(TELEGRAM_BOT_TOKEN, { polling: true });
+    console.log('Bot running in polling mode');
+  }
+}
+
+/* ==== Clients ==== */
 const searchClient = new SearchClient(
   AZURE_SEARCH_ENDPOINT,
   AZURE_SEARCH_INDEX,
@@ -157,46 +228,103 @@ async function callAzureOpenAI(chatId, userText) {
 }
 
 /* ==== Telegram handlers ==== */
-bot.onText(/^\/start/, async (msg) => {
-  const chatId = msg.chat.id;
-  await bot.sendMessage(
-    chatId,
-    'Hi! I’m connected to Azure GPT-4 with RAG. Send me a message and I’ll try to answer using your indexed sources.'
-  );
-});
-
-bot.onText(/^\/reset/, async (msg) => {
-  history.delete(msg.chat.id);
-  await bot.sendMessage(msg.chat.id, 'Conversation memory cleared.');
-});
-
-// Main message handler
-bot.on('message', async (msg) => {
-  const chatId = msg.chat.id;
-  const text = msg.text?.trim();
-
-  // Ignore non-text or commands (handled above)
-  if (!text || text.startsWith('/')) return;
-
-  // Typing indicator
-  bot.sendChatAction(chatId, 'typing');
-
-  try {
-    const reply = await callAzureOpenAI(chatId, text);
-
-    // Telegram max ~4096 chars; keep margin
-    const chunks = reply.match(/[\s\S]{1,3800}/g) || [reply];
-    for (const c of chunks) {
-      await bot
-        .sendMessage(chatId, c, { parse_mode: 'Markdown' })
-        .catch(async () => await bot.sendMessage(chatId, c)); // fallback if Markdown fails
-    }
-  } catch {
+function setupBotHandlers(bot) {
+  bot.onText(/^\/start/, async (msg) => {
+    const chatId = msg.chat.id;
     await bot.sendMessage(
       chatId,
-      'Sorry, I hit an error reaching the AI. Please try again.'
+      'Hi! I\'m connected to Azure GPT-4 with RAG. Send me a message and I\'ll try to answer using your indexed sources.'
     );
+  });
+
+  bot.onText(/^\/reset/, async (msg) => {
+    history.delete(msg.chat.id);
+    await bot.sendMessage(msg.chat.id, 'Conversation memory cleared.');
+  });
+
+  // Main message handler
+  bot.on('message', async (msg) => {
+    const chatId = msg.chat.id;
+    const text = msg.text?.trim();
+
+    // Ignore non-text or commands (handled above)
+    if (!text || text.startsWith('/')) return;
+
+    // Typing indicator
+    bot.sendChatAction(chatId, 'typing');
+
+    try {
+      const reply = await callAzureOpenAI(chatId, text);
+
+      // Telegram max ~4096 chars; keep margin
+      const chunks = reply.match(/[\s\S]{1,3800}/g) || [reply];
+      for (const c of chunks) {
+        await bot
+          .sendMessage(chatId, c, { parse_mode: 'Markdown' })
+          .catch(async () => await bot.sendMessage(chatId, c)); // fallback if Markdown fails
+      }
+    } catch {
+      await bot.sendMessage(
+        chatId,
+        'Sorry, I hit an error reaching the AI. Please try again.'
+      );
+    }
+  });
+}
+
+/* ==== Server startup and graceful shutdown ==== */
+async function startServer() {
+  try {
+    await initializeBot();
+    
+    // Setup bot handlers after bot is initialized
+    setupBotHandlers(bot);
+
+    // Start HTTP server
+    server.listen(PORT, () => {
+      console.log(`🚀 Server running on port ${PORT}`);
+      console.log(`📊 Health check: http://localhost:${PORT}/health`);
+      console.log(`🌍 Environment: ${NODE_ENV}`);
+      console.log(`🤖 Bot mode: ${isWebhookMode ? 'Webhook' : 'Polling'}`);
+    });
+  } catch (error) {
+    console.error('Failed to start server:', error);
+    process.exit(1);
   }
+}
+
+// Graceful shutdown
+process.on('SIGTERM', async () => {
+  console.log('SIGTERM received, shutting down gracefully...');
+  if (bot && isWebhookMode) {
+    try {
+      await bot.deleteWebhook();
+      console.log('Webhook deleted');
+    } catch (error) {
+      console.error('Error deleting webhook:', error);
+    }
+  }
+  server.close(() => {
+    console.log('HTTP server closed');
+    process.exit(0);
+  });
 });
 
-console.log('Telegram RAG bot is running (long polling)…');
+process.on('SIGINT', async () => {
+  console.log('SIGINT received, shutting down gracefully...');
+  if (bot && isWebhookMode) {
+    try {
+      await bot.deleteWebhook();
+      console.log('Webhook deleted');
+    } catch (error) {
+      console.error('Error deleting webhook:', error);
+    }
+  }
+  server.close(() => {
+    console.log('HTTP server closed');
+    process.exit(0);
+  });
+});
+
+// Start the server
+startServer();

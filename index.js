@@ -768,8 +768,8 @@ app.get('/', (req, res) => {
 <body>
     <div class="container">
         <div class="header">
-            <h1>🤖 Telegram RAG Bot</h1>
-            <p>AI-Powered Knowledge Assistant with Azure OpenAI & Search</p>
+            <h1>RecallAI</h1>
+            <p>Intelligent answers, powered by GPT-4 and retrieval-augmented search.</p>
         </div>
         
         <div class="chat-and-features">

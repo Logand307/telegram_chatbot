@@ -779,7 +779,7 @@ app.get('/', (req, res) => {
                     <div class="chat-messages" id="chatMessages">
                         <div class="message bot-message">
                             <div class="message-content">
-                                <div class="message-text">Hello! I'm your RAG bot. Ask me anything and I'll search my knowledge base to help you. You can also chat with me on Telegram!</div>
+                                <div class="message-text">Welcome! I’m your AI assistant. Ask me anything - as you would with GPT-4 - and I’ll combine reasoning with retrieval from my knowledge base. You can even upload your documents to expand what I know.</div>
                                 <div class="message-timestamp">Just now</div>
                             </div>
                         </div>

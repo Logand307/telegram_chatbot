@@ -5,6 +5,12 @@ const axios = require('axios');
 const { SearchClient, AzureKeyCredential } = require('@azure/search-documents');
 const express = require('express');
 const { createServer } = require('http');
+const multer = require('multer');
+const pdfParse = require('pdf-parse');
+const mammoth = require('mammoth');
+const fs = require('fs-extra');
+const path = require('path');
+const { v4: uuidv4 } = require('uuid');
 
 /* ==== Env validation ==== */
 const {
@@ -35,6 +41,74 @@ ensure('AZURE_OPENAI_EMBEDDINGS_URL', AZURE_OPENAI_EMBEDDINGS_URL);
 ensure('AZURE_SEARCH_ENDPOINT', AZURE_SEARCH_ENDPOINT);
 ensure('AZURE_SEARCH_API_KEY', AZURE_SEARCH_API_KEY);
 ensure('AZURE_SEARCH_INDEX', AZURE_SEARCH_INDEX);
+
+/* ==== File Upload & Storage Setup ==== */
+const uploadsDir = path.join(__dirname, 'uploads');
+const documentsDir = path.join(__dirname, 'documents');
+
+// Ensure directories exist
+fs.ensureDirSync(uploadsDir);
+fs.ensureDirSync(documentsDir);
+
+// Configure multer for file uploads
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, uploadsDir);
+  },
+  filename: (req, file, cb) => {
+    const uniqueName = `${Date.now()}-${uuidv4()}-${file.originalname}`;
+    cb(null, uniqueName);
+  }
+});
+
+const upload = multer({
+  storage: storage,
+  limits: {
+    fileSize: 10 * 1024 * 1024, // 10MB limit
+  },
+  fileFilter: (req, file, cb) => {
+    const allowedTypes = [
+      'application/pdf',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'application/msword'
+    ];
+    
+    if (allowedTypes.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only PDF and Word documents are allowed'));
+    }
+  }
+});
+
+// In-memory storage for uploaded documents (in production, use a database)
+const uploadedDocuments = new Map();
+
+// Cache for embeddings to avoid regenerating them
+const embeddingCache = new Map();
+
+// Batch size for parallel processing
+const BATCH_SIZE = 5;
+
+// Cache management
+const MAX_CACHE_SIZE = 1000; // Maximum number of cached embeddings
+
+function manageCache() {
+  if (embeddingCache.size > MAX_CACHE_SIZE) {
+    // Remove oldest entries (simple LRU-like behavior)
+    const entries = Array.from(embeddingCache.entries());
+    const toRemove = entries.slice(0, Math.floor(MAX_CACHE_SIZE * 0.2)); // Remove 20%
+    
+    toRemove.forEach(([key]) => {
+      embeddingCache.delete(key);
+    });
+    
+    console.log(`Cache cleaned: removed ${toRemove.length} entries`);
+  }
+}
+
+// Clean cache every 5 minutes
+setInterval(manageCache, 5 * 60 * 1000);
 
 /* ==== Express app setup ==== */
 const app = express();
@@ -98,9 +172,9 @@ app.get('/', (req, res) => {
         
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: #0d1117;
             min-height: 100vh;
-            color: #333;
+            color: #e6edf3;
         }
         
         .container {
@@ -112,150 +186,53 @@ app.get('/', (req, res) => {
         .header {
             text-align: center;
             margin-bottom: 40px;
-            color: white;
+            color: #e6edf3;
         }
         
         .header h1 {
             font-size: 3rem;
             margin-bottom: 10px;
-            text-shadow: 0 2px 4px rgba(0,0,0,0.3);
+            background: linear-gradient(135deg, #58a6ff 0%, #1f6feb 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            font-weight: 700;
         }
         
         .header p {
             font-size: 1.2rem;
-            opacity: 0.9;
-        }
-        
-        .dashboard {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-            gap: 20px;
-            margin-bottom: 40px;
-        }
-        
-        .card {
-            background: white;
-            border-radius: 16px;
-            padding: 24px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
-            transition: transform 0.2s, box-shadow 0.2s;
-        }
-        
-        .card:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 20px 40px rgba(0,0,0,0.15);
-        }
-        
-        .card h3 {
-            color: #667eea;
-            margin-bottom: 16px;
-            font-size: 1.3rem;
-        }
-        
-        .status-indicator {
-            display: inline-block;
-            width: 12px;
-            height: 12px;
-            border-radius: 50%;
-            margin-right: 8px;
-            background: #10b981;
-            animation: pulse 2s infinite;
-        }
-        
-        @keyframes pulse {
-            0% { opacity: 1; }
-            50% { opacity: 0.5; }
-            100% { opacity: 1; }
-        }
-        
-        .metric {
-            font-size: 2rem;
-            font-weight: bold;
-            color: #667eea;
-            margin-bottom: 8px;
-        }
-        
-        .info-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 16px;
-            margin-top: 16px;
-        }
-        
-        .info-item {
-            text-align: center;
-        }
-        
-        .info-label {
-            font-size: 0.9rem;
-            color: #666;
-            margin-bottom: 4px;
-        }
-        
-        .info-value {
-            font-weight: bold;
-            color: #333;
-        }
-        
-        .features {
-            background: white;
-            border-radius: 16px;
-            padding: 24px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
-        }
-        
-        .features h3 {
-            color: #667eea;
-            margin-bottom: 20px;
-            font-size: 1.3rem;
-        }
-        
-        .feature-list {
-            list-style: none;
-        }
-        
-        .feature-list li {
-            padding: 12px 0;
-            border-bottom: 1px solid #eee;
-            display: flex;
-            align-items: center;
-        }
-        
-        .feature-list li:last-child {
-            border-bottom: none;
-        }
-        
-        .feature-icon {
-            color: #10b981;
-            margin-right: 12px;
-            font-size: 1.2rem;
+            opacity: 0.8;
+            color: #8b949e;
         }
         
         .chat-interface {
-            background: white;
-            border-radius: 16px;
+            background: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 12px;
             padding: 24px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
-            margin-bottom: 20px;
+            margin-bottom: 30px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
         }
         
         .chat-interface h3 {
-            color: #667eea;
+            color: #58a6ff;
             margin-bottom: 20px;
-            font-size: 1.3rem;
+            font-size: 1.4rem;
+            font-weight: 600;
         }
         
         .chat-container {
-            border: 1px solid #e5e7eb;
-            border-radius: 12px;
+            border: 1px solid #30363d;
+            border-radius: 8px;
             overflow: hidden;
+            background: #0d1117;
         }
         
         .chat-messages {
             height: 400px;
             overflow-y: auto;
             padding: 20px;
-            background: #f9fafb;
+            background: #0d1117;
         }
         
         .message {
@@ -279,15 +256,15 @@ app.get('/', (req, res) => {
         }
         
         .user-message .message-content {
-            background: #667eea;
+            background: #1f6feb;
             color: white;
             border-bottom-right-radius: 6px;
         }
         
         .bot-message .message-content {
-            background: white;
-            color: #333;
-            border: 1px solid #e5e7eb;
+            background: #21262d;
+            color: #e6edf3;
+            border: 1px solid #30363d;
             border-bottom-left-radius: 6px;
         }
         
@@ -304,8 +281,8 @@ app.get('/', (req, res) => {
         
         .chat-input-container {
             padding: 20px;
-            background: white;
-            border-top: 1px solid #e5e7eb;
+            background: #161b22;
+            border-top: 1px solid #30363d;
         }
         
         .chat-form {
@@ -316,23 +293,25 @@ app.get('/', (req, res) => {
         .chat-input {
             flex: 1;
             padding: 12px 16px;
-            border: 1px solid #d1d5db;
-            border-radius: 24px;
+            border: 1px solid #30363d;
+            border-radius: 8px;
             font-size: 1rem;
             outline: none;
+            background: #0d1117;
+            color: #e6edf3;
             transition: border-color 0.2s;
         }
         
         .chat-input:focus {
-            border-color: #667eea;
-            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+            border-color: #58a6ff;
+            box-shadow: 0 0 0 3px rgba(88, 166, 255, 0.1);
         }
         
         .chat-send-btn {
-            background: #667eea;
+            background: #1f6feb;
             color: white;
             border: none;
-            border-radius: 50%;
+            border-radius: 8px;
             width: 48px;
             height: 48px;
             display: flex;
@@ -343,24 +322,408 @@ app.get('/', (req, res) => {
         }
         
         .chat-send-btn:hover {
-            background: #5a67d8;
+            background: #1f6feb;
+            opacity: 0.9;
         }
         
         .chat-send-btn:disabled {
-            background: #9ca3af;
+            background: #30363d;
             cursor: not-allowed;
+        }
+        
+        .chat-and-features {
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 24px;
+            margin-bottom: 30px;
+        }
+        
+        .features {
+            background: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 12px;
+            padding: 24px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+            height: fit-content;
+            position: sticky;
+            top: 20px;
+        }
+        
+        .features h3 {
+            color: #58a6ff;
+            margin-bottom: 20px;
+            font-size: 1.4rem;
+            font-weight: 600;
+        }
+        
+        .feature-list {
+            list-style: none;
+        }
+        
+        .feature-list li {
+            padding: 12px 0;
+            border-bottom: 1px solid #30363d;
+            display: flex;
+            align-items: center;
+        }
+        
+        .feature-list li:last-child {
+            border-bottom: none;
+        }
+        
+        .feature-icon {
+            color: #238636;
+            margin-right: 12px;
+            font-size: 1.2rem;
+        }
+        
+        .documents-section {
+            background: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 30px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        }
+        
+        .documents-section h3 {
+            color: #58a6ff;
+            margin-bottom: 20px;
+            font-size: 1.4rem;
+            font-weight: 600;
+        }
+        
+        .upload-container {
+            background: #0d1117;
+            border: 2px dashed #30363d;
+            border-radius: 12px;
+            padding: 30px;
+            text-align: center;
+            margin-bottom: 30px;
+            transition: border-color 0.2s;
+        }
+        
+        .upload-container:hover {
+            border-color: #58a6ff;
+        }
+        
+        .upload-form {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 20px;
+        }
+        
+        .file-input-wrapper {
+            position: relative;
+            width: 100%;
+            max-width: 400px;
+        }
+        
+        .file-input {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            opacity: 0;
+            cursor: pointer;
+        }
+        
+        .file-input-label {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 12px;
+            padding: 24px;
+            background: #21262d;
+            border: 1px solid #30363d;
+            border-radius: 12px;
+            color: #58a6ff;
+            cursor: pointer;
+            transition: all 0.2s;
+            min-height: 120px;
+            justify-content: center;
+        }
+        
+        .file-input-label:hover {
+            background: #30363d;
+            border-color: #58a6ff;
+        }
+        
+        .file-input-label svg {
+            width: 48px;
+            height: 48px;
+            color: #58a6ff;
+        }
+        
+        .selected-file-name {
+            font-size: 0.9rem;
+            color: #8b949e;
+            margin-top: 8px;
+            word-break: break-all;
+        }
+        
+        .upload-btn {
+            background: #1f6feb;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            padding: 14px 28px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            transition: background-color 0.2s;
+            font-size: 1rem;
+            font-weight: 500;
+        }
+        
+        .upload-btn:hover {
+            background: #1f6feb;
+            opacity: 0.9;
+        }
+        
+        .upload-btn:disabled {
+            background: #30363d;
+            cursor: not-allowed;
+        }
+        
+        .upload-status {
+            margin-top: 20px;
+            padding: 16px;
+            border-radius: 8px;
+            font-weight: 500;
+            text-align: center;
+        }
+        
+        .upload-status.success {
+            background: #0c532a;
+            border: 1px solid #238636;
+            color: #7ee787;
+        }
+        
+        .upload-status.error {
+            background: #5a1f1a;
+            border: 1px solid #da3633;
+            color: #f85149;
+        }
+        
+        .documents-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 16px;
+            margin-top: 20px;
+        }
+        
+        .document-item {
+            background: #21262d;
+            border: 1px solid #30363d;
+            border-radius: 8px;
+            padding: 16px;
+            transition: all 0.2s;
+        }
+        
+        .document-item:hover {
+            border-color: #58a6ff;
+            transform: translateY(-2px);
+        }
+        
+        .document-info {
+            margin-bottom: 12px;
+        }
+        
+        .document-item .name {
+            font-weight: 600;
+            color: #e6edf3;
+            margin-bottom: 8px;
+            font-size: 1rem;
+        }
+        
+        .document-item .type {
+            font-size: 0.8rem;
+            color: #8b949e;
+            padding: 4px 8px;
+            border-radius: 4px;
+            background: #30363d;
+            display: inline-block;
+            margin-bottom: 8px;
+        }
+        
+        .document-item .upload-date,
+        .document-item .text-length {
+            font-size: 0.8rem;
+            color: #8b949e;
+            margin-bottom: 4px;
+        }
+        
+        .document-item .actions {
+            display: flex;
+            gap: 8px;
+        }
+        
+        .document-item .delete-btn {
+            background: #da3633;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            padding: 8px 12px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 0.9rem;
+            transition: background-color 0.2s;
+        }
+        
+        .document-item .delete-btn:hover {
+            background: #f85149;
+        }
+        
+        .loading, .no-documents, .error {
+            text-align: center;
+            padding: 40px;
+            color: #8b949e;
+            font-size: 1.1rem;
+        }
+        
+        .error {
+            color: #f85149;
+        }
+        
+        .dashboard {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-bottom: 40px;
+        }
+        
+        .card {
+            background: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 12px;
+            padding: 24px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+            transition: transform 0.2s, border-color 0.2s;
+        }
+        
+        .card:hover {
+            transform: translateY(-2px);
+            border-color: #58a6ff;
+        }
+        
+        .card h3 {
+            color: #58a6ff;
+            margin-bottom: 16px;
+            font-size: 1.3rem;
+            font-weight: 600;
+        }
+        
+        .status-indicator {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-right: 8px;
+            background: #238636;
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+        
+        .metric {
+            font-size: 2rem;
+            font-weight: bold;
+            color: #58a6ff;
+            margin-bottom: 8px;
+        }
+        
+        .info-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+            margin-top: 16px;
+        }
+        
+        .info-item {
+            text-align: center;
+        }
+        
+        .info-label {
+            font-size: 0.9rem;
+            color: #8b949e;
+            margin-bottom: 4px;
+        }
+        
+        .info-value {
+            font-weight: bold;
+            color: #e6edf3;
+        }
+        
+        .info-value a {
+            color: #58a6ff;
+            text-decoration: none;
+        }
+        
+        .info-value a:hover {
+            text-decoration: underline;
+        }
+        
+        .features {
+            background: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 12px;
+            padding: 24px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        }
+        
+        .features h3 {
+            color: #58a6ff;
+            margin-bottom: 20px;
+            font-size: 1.4rem;
+            font-weight: 600;
+        }
+        
+        .feature-list {
+            list-style: none;
+        }
+        
+        .feature-list li {
+            padding: 12px 0;
+            border-bottom: 1px solid #30363d;
+            display: flex;
+            align-items: center;
+        }
+        
+        .feature-list li:last-child {
+            border-bottom: none;
+        }
+        
+        .feature-icon {
+            color: #238636;
+            margin-right: 12px;
+            font-size: 1.2rem;
         }
         
         .footer {
             text-align: center;
             margin-top: 40px;
-            color: white;
+            color: #8b949e;
             opacity: 0.8;
         }
         
         @media (max-width: 768px) {
             .header h1 {
                 font-size: 2rem;
+            }
+            
+            .chat-and-features {
+                grid-template-columns: 1fr;
+                gap: 16px;
             }
             
             .dashboard {
@@ -370,6 +733,35 @@ app.get('/', (req, res) => {
             .info-grid {
                 grid-template-columns: 1fr;
             }
+            
+            .documents-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .upload-container {
+                padding: 20px;
+            }
+            
+            .file-input-label {
+                min-height: 100px;
+                padding: 20px;
+            }
+            
+            .chat-interface {
+                padding: 16px;
+            }
+            
+            .chat-messages {
+                height: 300px;
+            }
+            
+            .container {
+                padding: 16px;
+            }
+            
+            .features {
+                position: static;
+            }
         }
     </style>
 </head>
@@ -378,6 +770,95 @@ app.get('/', (req, res) => {
         <div class="header">
             <h1>🤖 Telegram RAG Bot</h1>
             <p>AI-Powered Knowledge Assistant with Azure OpenAI & Search</p>
+        </div>
+        
+        <div class="chat-and-features">
+            <div class="chat-interface">
+                <h3>💬 Chat with Your Bot</h3>
+                <div class="chat-container">
+                    <div class="chat-messages" id="chatMessages">
+                        <div class="message bot-message">
+                            <div class="message-content">
+                                <div class="message-text">Hello! I'm your RAG bot. Ask me anything and I'll search my knowledge base to help you. You can also chat with me on Telegram!</div>
+                                <div class="message-timestamp">Just now</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="chat-input-container">
+                        <form id="chatForm" class="chat-form">
+                            <input 
+                                type="text" 
+                                id="messageInput" 
+                                placeholder="Type your message here..." 
+                                class="chat-input"
+                                autocomplete="off"
+                            >
+                            <button type="submit" class="chat-send-btn">
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                    <path d="M22 2L11 13" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                    <path d="M22 2L15 22L11 13L2 9L22 2Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                </svg>
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="features">
+                <h3>🚀 Bot Features</h3>
+                <ul class="feature-list">
+                    <li><span class="feature-icon">✅</span> Natural language conversations with GPT-4</li>
+                    <li><span class="feature-icon">✅</span> RAG-powered responses using your knowledge base</li>
+                    <li><span class="feature-icon">✅</span> Vector search for semantic understanding</li>
+                    <li><span class="feature-icon">✅</span> Conversation memory and context</li>
+                    <li><span class="feature-icon">✅</span> Cloud-deployed and always available</li>
+                    <li><span class="feature-icon">✅</span> Health monitoring and status checks</li>
+                    <li><span class="feature-icon">✅</span> Web chat interface for testing</li>
+                    <li><span class="feature-icon">✅</span> Document upload and processing</li>
+                    <li><span class="feature-icon">✅</span> Enhanced RAG with multiple sources</li>
+                </ul>
+            </div>
+        </div>
+        
+        <div class="documents-section">
+            <h3>📄 Upload Documents</h3>
+            <p>Upload PDF or Word documents to enhance your bot's knowledge base</p>
+            
+            <div class="upload-container">
+                <form id="uploadForm" class="upload-form">
+                    <div class="file-input-wrapper">
+                        <input 
+                            type="file" 
+                            id="documentInput" 
+                            accept=".pdf,.doc,.docx"
+                            class="file-input"
+                        >
+                        <label for="documentInput" class="file-input-label">
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <path d="M14 2H6C5.46957 2 4.96086 2.21071 4.58579 2.58579C4.21071 2.96086 4 3.46957 4 4V20C4 20.5304 4.21071 21.0391 4.58579 21.4142C4.96086 21.7893 5.46957 22 6 22H18C18.5304 22 19.0391 21.7893 19.4142 21.4142C19.7893 21.0391 20 20.5304 20 20V8L14 2Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                <path d="M14 2V8H20" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                <path d="M16 13H8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                <path d="M16 17H8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                <path d="M10 9H8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                            </svg>
+                            Choose File
+                        </label>
+                        <span id="selectedFileName" class="selected-file-name"></span>
+                    </div>
+                    <button type="submit" class="upload-btn" id="uploadBtn" disabled>
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M21 15V19C21 19.5304 20.7893 20.0391 20.4142 20.4142C20.0391 20.7893 19.5304 21 19 21H5C4.46957 21 3.96086 20.7893 3.58579 20.4142C3.21071 20.0391 3 19.5304 3 19V15" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M7 10L12 15L17 10" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 15V3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg> Upload Document
+                    </button>
+                </form>
+            </div>
+            
+            <div class="upload-status" id="uploadStatus"></div>
+        </div>
+        
+        <div class="documents-section">
+            <h3>📚 Your Documents</h3>
+            <div id="documentsList" class="documents-grid">
+                <div class="loading">Loading documents...</div>
+            </div>
         </div>
         
         <div class="dashboard">
@@ -408,7 +889,7 @@ app.get('/', (req, res) => {
                     </div>
                     <div class="info-item">
                         <div class="info-label">Health Check</div>
-                        <div class="info-value"><a href="/health" style="color: #667eea;">/health</a></div>
+                        <div class="info-value"><a href="/health">/health</a></div>
                     </div>
                 </div>
             </div>
@@ -428,50 +909,6 @@ app.get('/', (req, res) => {
                     </div>
                 </div>
             </div>
-        </div>
-        
-        <div class="chat-interface">
-            <h3>💬 Chat with Your Bot</h3>
-            <div class="chat-container">
-                <div class="chat-messages" id="chatMessages">
-                    <div class="message bot-message">
-                        <div class="message-content">
-                            <div class="message-text">Hello! I'm your RAG bot. Ask me anything and I'll search my knowledge base to help you. You can also chat with me on Telegram!</div>
-                            <div class="message-timestamp">Just now</div>
-                        </div>
-                    </div>
-                </div>
-                <div class="chat-input-container">
-                    <form id="chatForm" class="chat-form">
-                        <input 
-                            type="text" 
-                            id="messageInput" 
-                            placeholder="Type your message here..." 
-                            class="chat-input"
-                            autocomplete="off"
-                        >
-                        <button type="submit" class="chat-send-btn">
-                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                <path d="M22 2L11 13" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                                <path d="M22 2L15 22L11 13L2 9L22 2Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                            </svg>
-                        </button>
-                    </form>
-                </div>
-            </div>
-        </div>
-        
-        <div class="features">
-            <h3>🚀 Bot Features</h3>
-            <ul class="feature-list">
-                <li><span class="feature-icon">✅</span> Natural language conversations with GPT-4</li>
-                <li><span class="feature-icon">✅</span> RAG-powered responses using your knowledge base</li>
-                <li><span class="feature-icon">✅</span> Vector search for semantic understanding</li>
-                <li><span class="feature-icon">✅</span> Conversation memory and context</li>
-                <li><span class="feature-icon">✅</span> Cloud-deployed and always available</li>
-                <li><span class="feature-icon">✅</span> Health monitoring and status checks</li>
-                <li><span class="feature-icon">✅</span> Web chat interface for testing</li>
-            </ul>
         </div>
         
         <div class="footer">
@@ -498,6 +935,12 @@ app.get('/', (req, res) => {
             
             // Chat functionality
             setupChat();
+            
+            // File upload functionality
+            setupFileUpload();
+            
+            // Load documents
+            loadDocuments();
         });
         
         function setupChat() {
@@ -604,6 +1047,137 @@ app.get('/', (req, res) => {
             const secs = Math.floor(seconds % 60);
             return hours.toString().padStart(2, '0') + ':' + minutes.toString().padStart(2, '0') + ':' + secs.toString().padStart(2, '0');
         }
+
+        function setupFileUpload() {
+            const uploadForm = document.getElementById('uploadForm');
+            const documentInput = document.getElementById('documentInput');
+            const uploadBtn = document.getElementById('uploadBtn');
+            const selectedFileName = document.getElementById('selectedFileName');
+            const uploadStatus = document.getElementById('uploadStatus');
+            
+            // Handle file selection
+            documentInput.addEventListener('change', function(e) {
+                const file = e.target.files[0];
+                if (file) {
+                    selectedFileName.textContent = file.name;
+                    uploadBtn.disabled = false;
+                    uploadStatus.innerHTML = '';
+                } else {
+                    selectedFileName.textContent = '';
+                    uploadBtn.disabled = true;
+                }
+            });
+            
+            // Handle form submission
+            uploadForm.addEventListener('submit', async function(e) {
+                e.preventDefault();
+                
+                const file = documentInput.files[0];
+                if (!file) return;
+                
+                // Show uploading status
+                uploadBtn.disabled = true;
+                uploadBtn.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 2V6M12 18V22M4.93 4.93L7.76 7.76M16.24 16.24L19.07 19.07M2 12H6M18 12H22M4.93 19.07L7.76 16.24M16.24 7.76L19.07 4.93" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg> Processing...';
+                
+                const formData = new FormData();
+                formData.append('document', file);
+                
+                try {
+                    const response = await fetch('/upload', {
+                        method: 'POST',
+                        body: formData
+                    });
+                    
+                    const data = await response.json();
+                    
+                    if (data.success) {
+                        uploadStatus.innerHTML = \`✅ \${data.message}<br><strong>\${data.document.originalName}</strong> processed successfully!<br>Text length: \${data.document.textLength} characters, \${data.document.chunks} chunks created.\`;
+                        uploadStatus.className = 'upload-status success';
+                        
+                        // Reset form
+                        uploadForm.reset();
+                        selectedFileName.textContent = '';
+                        uploadBtn.disabled = true;
+                        
+                        // Reload documents list
+                        loadDocuments();
+                    } else {
+                        throw new Error(data.error || 'Upload failed');
+                    }
+                } catch (error) {
+                    console.error('Upload error:', error);
+                    uploadStatus.innerHTML = \`❌ Upload failed: \${error.message}\`;
+                    uploadStatus.className = 'upload-status error';
+                } finally {
+                    uploadBtn.disabled = false;
+                    uploadBtn.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M21 15V19C21 19.5304 20.7893 20.0391 20.4142 20.4142C20.0391 20.7893 19.5304 21 19 21H5C4.46957 21 3.96086 20.7893 3.58579 20.4142C3.21071 20.0391 3 19.5304 3 19V15" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M7 10L12 15L17 10" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 15V3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg> Upload Document';
+                }
+            });
+        }
+        
+        async function loadDocuments() {
+            const documentsList = document.getElementById('documentsList');
+            
+            try {
+                const response = await fetch('/documents');
+                const data = await response.json();
+                
+                if (data.success) {
+                    if (data.documents.length === 0) {
+                        documentsList.innerHTML = '<div class="no-documents">No documents uploaded yet. Upload your first document to get started!</div>';
+                    } else {
+                        documentsList.innerHTML = data.documents.map(doc => \`
+                            <div class="document-item">
+                                <div class="document-info">
+                                    <div class="name" title="\${doc.name}">\${doc.name}</div>
+                                    <div class="type">\${doc.type.includes('pdf') ? 'PDF' : 'Word'}</div>
+                                    <div class="upload-date">\${new Date(doc.uploadDate).toLocaleDateString()}</div>
+                                    <div class="text-length">\${doc.textLength.toLocaleString()} chars</div>
+                                </div>
+                                <div class="actions">
+                                    <button class="delete-btn" onclick="deleteDocument('\${doc.id}')">
+                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                            <path d="M3 6H5H21" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                            <path d="M8 6V4C8 3.46957 8.21071 2.96086 8.58579 2.58579C8.96086 2.21071 9.46957 2 10 2H14C14.5304 2 15.0391 2.21071 15.4142 2.58579C15.7893 2.96086 16 3.46957 16 4V6M19 6V20C19 20.5304 18.7893 21.0391 18.4142 21.4142C18.0391 21.7893 17.5304 22 17 22H7C6.46957 22 5.96086 21.7893 5.58579 21.4142C5.21071 21.0391 5 20.5304 5 20V6H19Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                        </svg>
+                                        Delete
+                                    </button>
+                                </div>
+                            </div>
+                        \`).join('');
+                    }
+                } else {
+                    documentsList.innerHTML = '<div class="error">Failed to load documents</div>';
+                }
+            } catch (error) {
+                console.error('Error loading documents:', error);
+                documentsList.innerHTML = '<div class="error">Error loading documents</div>';
+            }
+        }
+        
+        async function deleteDocument(documentId) {
+            if (!confirm('Are you sure you want to delete this document? This action cannot be undone.')) {
+                return;
+            }
+            
+            try {
+                const response = await fetch(\`/documents/\${documentId}\`, {
+                    method: 'DELETE'
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    // Reload documents list
+                    loadDocuments();
+                } else {
+                    alert('Failed to delete document: ' + (data.error || 'Unknown error'));
+                }
+            } catch (error) {
+                console.error('Error deleting document:', error);
+                alert('Error deleting document: ' + error.message);
+            }
+        }
     </script>
 </body>
 </html>`;
@@ -675,6 +1249,98 @@ app.post('/chat', async (req, res) => {
       error: 'Failed to process message',
       details: error.message 
     });
+  }
+});
+
+// File upload endpoint
+app.post('/upload', upload.single('document'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+    
+    console.log('File uploaded:', req.file.originalname, 'Size:', req.file.size);
+    
+    // Process the document
+    const documentInfo = await processDocument(
+      req.file.path,
+      req.file.originalname,
+      req.file.mimetype
+    );
+    
+    // Clean up uploaded file
+    await fs.remove(req.file.path);
+    
+    res.json({
+      success: true,
+      message: 'Document processed successfully',
+      document: documentInfo
+    });
+    
+  } catch (error) {
+    console.error('File upload error:', error);
+    
+    // Clean up uploaded file on error
+    if (req.file) {
+      await fs.remove(req.file.path).catch(console.error);
+    }
+    
+    res.status(500).json({
+      error: 'Failed to process document',
+      details: error.message
+    });
+  }
+});
+
+// Get uploaded documents list
+app.get('/documents', (req, res) => {
+  try {
+    const documents = Array.from(uploadedDocuments.values()).map(doc => ({
+      id: doc.id,
+      name: doc.originalName,
+      type: doc.mimeType,
+      uploadDate: doc.uploadDate,
+      textLength: doc.textLength,
+      chunks: doc.chunks,
+      embeddings: doc.embeddings
+    }));
+    
+    res.json({
+      success: true,
+      documents: documents
+    });
+  } catch (error) {
+    console.error('Error getting documents:', error);
+    res.status(500).json({ error: 'Failed to get documents' });
+  }
+});
+
+// Delete uploaded document
+app.delete('/documents/:id', async (req, res) => {
+  try {
+    const documentId = req.params.id;
+    const documentInfo = uploadedDocuments.get(documentId);
+    
+    if (!documentInfo) {
+      return res.status(404).json({ error: 'Document not found' });
+    }
+    
+    // Remove from memory
+    uploadedDocuments.delete(documentId);
+    
+    // Remove from disk
+    const chunksPath = path.join(documentsDir, `${documentId}.json`);
+    if (await fs.pathExists(chunksPath)) {
+      await fs.remove(chunksPath);
+    }
+    
+    res.json({
+      success: true,
+      message: 'Document deleted successfully'
+    });
+  } catch (error) {
+    console.error('Error deleting document:', error);
+    res.status(500).json({ error: 'Failed to delete document' });
   }
 });
 
@@ -791,6 +1457,11 @@ const SYSTEM_PROMPT =
 
 /* ==== Embeddings + Retrieval ==== */
 async function embedText(text) {
+  const cachedEmbedding = embeddingCache.get(text);
+  if (cachedEmbedding) {
+    return cachedEmbedding;
+  }
+
   const r = await axios.post(
     AZURE_OPENAI_EMBEDDINGS_URL,
     { input: text },
@@ -802,7 +1473,94 @@ async function embedText(text) {
       timeout: 20000
     }
   );
-  return r.data?.data?.[0]?.embedding;
+  const embedding = r.data?.data?.[0]?.embedding;
+  embeddingCache.set(text, embedding);
+  return embedding;
+}
+
+/* ==== Document Processing Functions ==== */
+async function extractTextFromPDF(filePath) {
+  try {
+    const dataBuffer = await fs.readFile(filePath);
+    const data = await pdfParse(dataBuffer);
+    return data.text;
+  } catch (error) {
+    console.error('Error extracting text from PDF:', error);
+    throw new Error('Failed to extract text from PDF');
+  }
+}
+
+async function extractTextFromWord(filePath) {
+  try {
+    const result = await mammoth.extractRawText({ path: filePath });
+    return result.value;
+  } catch (error) {
+    console.error('Error extracting text from Word document:', error);
+    throw new Error('Failed to extract text from Word document');
+  }
+}
+
+async function processDocument(filePath, originalName, mimeType) {
+  let text;
+  
+  if (mimeType === 'application/pdf') {
+    text = await extractTextFromPDF(filePath);
+  } else if (mimeType.includes('word')) {
+    text = await extractTextFromWord(filePath);
+  } else {
+    throw new Error('Unsupported file type');
+  }
+  
+  // Clean and chunk the text
+  const cleanedText = text.replace(/\s+/g, ' ').trim();
+  
+  // Split into chunks (roughly 1000 characters each)
+  const chunks = [];
+  const chunkSize = 1000;
+  const overlap = 200;
+  
+  for (let i = 0; i < cleanedText.length; i += chunkSize - overlap) {
+    const chunk = cleanedText.slice(i, i + chunkSize);
+    if (chunk.trim().length > 50) { // Only add chunks with meaningful content
+      chunks.push(chunk);
+    }
+  }
+  
+  // Process embeddings in parallel batches for better performance
+  const embeddings = [];
+  for (let i = 0; i < chunks.length; i += BATCH_SIZE) {
+    const batch = chunks.slice(i, i + BATCH_SIZE);
+    const batchPromises = batch.map(async (chunk) => {
+      const embedding = await embedText(chunk);
+      return embedding ? { content: chunk, contentVector: embedding } : null;
+    });
+    
+    const batchResults = await Promise.all(batchPromises);
+    embeddings.push(...batchResults.filter(Boolean));
+  }
+  
+  // Store document info
+  const documentId = uuidv4();
+  const documentInfo = {
+    id: documentId,
+    originalName,
+    mimeType,
+    uploadDate: new Date().toISOString(),
+    textLength: cleanedText.length,
+    chunks: chunks.length,
+    embeddings: embeddings.length
+  };
+  
+  uploadedDocuments.set(documentId, documentInfo);
+  
+  // Store processed chunks
+  const chunksPath = path.join(documentsDir, `${documentId}.json`);
+  await fs.writeJson(chunksPath, {
+    documentInfo,
+    chunks: embeddings
+  });
+  
+  return documentInfo;
 }
 
 /**
@@ -813,32 +1571,144 @@ async function retrieve(question, k = 4) {
   const vector = await embedText(question);
   if (!Array.isArray(vector)) return [];
 
-  const results = await searchClient.search(question, {
-    top: k,
-    vectorSearchOptions: {
-      queries: [
-        {
-          kind: 'vector',
-          vector,
-          fields: ['contentVector'],
-          kNearestNeighborsCount: k
-        }
-      ]
-    }
-    // You can add semantic options later if you configure them on the index
-    // semanticSearchOptions: { queryCaption: 'extractive', queryAnswer: 'extractive', semanticConfigurationName: '<name>' }
-  });
+  // Run both searches in parallel for better performance
+  const [azureResults, uploadedResults] = await Promise.all([
+    searchAzureIndex(question, vector, k),
+    searchUploadedDocuments(question, vector, k)
+  ]);
+  
+  // Combine and rank results
+  const allResults = [...azureResults, ...uploadedResults];
+  
+  // Sort by relevance and return top k
+  return allResults
+    .sort((a, b) => {
+      // Prioritize Azure Search results slightly
+      const aScore = a.source === 'azure_search' ? (a.similarity || 0) + 0.01 : (a.similarity || 0);
+      const bScore = b.source === 'azure_search' ? (b.similarity || 0) + 0.01 : (b.similarity || 0);
+      return bScore - aScore;
+    })
+    .slice(0, k);
+}
 
-  const hits = [];
-  for await (const r of results.results) {
-    const d = r.document;
-    hits.push({
-      title: d.title,
-      url: d.url,
-      content: d.content
+async function searchAzureIndex(question, vector, k) {
+  try {
+    const searchResults = await searchClient.search(question, {
+      top: k,
+      vectorSearchOptions: {
+        queries: [
+          {
+            kind: 'vector',
+            vector,
+            fields: ['contentVector'],
+            kNearestNeighborsCount: k
+          }
+        ]
+      }
     });
+
+    const results = [];
+    for await (const r of searchResults.results) {
+      const d = r.document;
+      results.push({
+        title: d.title,
+        url: d.url,
+        content: d.content,
+        source: 'azure_search',
+        similarity: 0.8 // Default similarity for Azure results
+      });
+    }
+    return results;
+  } catch (error) {
+    console.error('Azure Search error:', error);
+    return [];
   }
-  return hits;
+}
+
+async function searchUploadedDocuments(question, vector, k) {
+  const results = [];
+  const similarityThreshold = 0.1; // Only consider results above this threshold
+  
+  // Process documents in parallel for better performance
+  const documentPromises = Array.from(uploadedDocuments.entries()).map(async ([documentId, documentInfo]) => {
+    try {
+      const chunksPath = path.join(documentsDir, `${documentId}.json`);
+      if (await fs.pathExists(chunksPath)) {
+        const documentData = await fs.readJson(chunksPath);
+        
+        // Calculate similarity for each chunk
+        const chunkResults = [];
+        for (const chunk of documentData.chunks) {
+          if (chunk.contentVector && Array.isArray(chunk.contentVector)) {
+            const similarity = calculateCosineSimilarity(vector, chunk.contentVector);
+            if (similarity > similarityThreshold) {
+              chunkResults.push({
+                title: documentInfo.originalName,
+                url: `uploaded://${documentId}`,
+                content: chunk.content,
+                source: 'uploaded_document',
+                similarity: similarity,
+                documentId: documentId
+              });
+            }
+          }
+        }
+        
+        // Sort chunks by similarity and take top results
+        return chunkResults
+          .sort((a, b) => b.similarity - a.similarity)
+          .slice(0, Math.ceil(k / 2)); // Limit per document
+      }
+      return [];
+    } catch (error) {
+      console.error(`Error processing document ${documentId}:`, error);
+      return [];
+    }
+  });
+  
+  // Wait for all documents to be processed
+  const allResults = await Promise.all(documentPromises);
+  
+  // Flatten and sort all results by similarity
+  const flattenedResults = allResults.flat();
+  return flattenedResults
+    .sort((a, b) => b.similarity - a.similarity)
+    .slice(0, k);
+}
+
+function calculateCosineSimilarity(vecA, vecB) {
+  if (!Array.isArray(vecA) || !Array.isArray(vecB) || vecA.length !== vecB.length) {
+    return 0;
+  }
+  
+  let dotProduct = 0;
+  let normA = 0;
+  let normB = 0;
+  
+  // Early termination if vectors are too different
+  let earlyTermination = false;
+  
+  for (let i = 0; i < vecA.length; i++) {
+    const a = vecA[i];
+    const b = vecB[i];
+    
+    dotProduct += a * b;
+    normA += a * a;
+    normB += b * b;
+    
+    // Early termination check - if norms are too different, similarity will be low
+    if (i > 100 && Math.abs(normA - normB) > 10) {
+      earlyTermination = true;
+      break;
+    }
+  }
+  
+  if (earlyTermination || normA === 0 || normB === 0) return 0;
+  
+  const similarity = dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
+  
+  // Return 0 for very low similarities to improve performance
+  return similarity > 0.05 ? similarity : 0;
 }
 
 /* ==== Chat call with RAG context ==== */
@@ -858,8 +1728,12 @@ async function callAzureOpenAI(chatId, userText) {
     if (passages.length) {
       contextBlock = passages
         .map(
-          (p, i) =>
-            `[#${i + 1}] ${p.title ?? 'Untitled'}\n${p.content ?? ''}\nSource: ${p.url ?? ''}`
+          (p, i) => {
+            const sourceInfo = p.source === 'uploaded_document' 
+              ? `Uploaded Document: ${p.title}`
+              : p.url || 'Unknown Source';
+            return `[#${i + 1}] ${p.title ?? 'Untitled'}\n${p.content ?? ''}\nSource: ${sourceInfo}`;
+          }
         )
         .join('\n\n');
     }

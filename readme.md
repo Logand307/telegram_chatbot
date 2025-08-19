@@ -1,6 +1,8 @@
 # Telegram RAG Bot with Azure AI Search
 
-A Telegram bot that uses RAG (Retrieval-Augmented Generation) with Azure AI Search and Azure OpenAI to provide intelligent responses based on indexed knowledge sources.
+A Telegram bot that uses RAG (Retrieval-Augmented Generation) with Azure AI Search and Azure OpenAI to provide intelligent responses based on indexed knowledge sources. Users can also add to the existing knowledge sources by uploading Word or PDF documents.
+
+Check it out here: https://telegramchatbot-production-12a6.up.railway.app/
 
 ## Features
 

@@ -210,8 +210,10 @@ app.get('/', (req, res) => {
             border: 1px solid #30363d;
             border-radius: 12px;
             padding: 24px;
-            margin-bottom: 30px;
             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+            display: flex;
+            flex-direction: column;
+            min-height: 600px;
         }
         
         .chat-interface h3 {
@@ -219,6 +221,7 @@ app.get('/', (req, res) => {
             margin-bottom: 20px;
             font-size: 1.4rem;
             font-weight: 600;
+            flex-shrink: 0;
         }
         
         .chat-container {
@@ -226,10 +229,13 @@ app.get('/', (req, res) => {
             border-radius: 8px;
             overflow: hidden;
             background: #0d1117;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
         }
         
         .chat-messages {
-            height: 400px;
+            flex: 1;
             overflow-y: auto;
             padding: 20px;
             background: #0d1117;
@@ -344,9 +350,9 @@ app.get('/', (req, res) => {
             border-radius: 12px;
             padding: 24px;
             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-            height: fit-content;
-            position: sticky;
-            top: 20px;
+            display: flex;
+            flex-direction: column;
+            min-height: 600px;
         }
         
         .features h3 {
@@ -354,10 +360,12 @@ app.get('/', (req, res) => {
             margin-bottom: 20px;
             font-size: 1.4rem;
             font-weight: 600;
+            flex-shrink: 0;
         }
         
         .feature-list {
             list-style: none;
+            margin-bottom: 20px;
         }
         
         .feature-list li {
@@ -393,13 +401,42 @@ app.get('/', (req, res) => {
             font-weight: 600;
         }
         
+        .documents-layout {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 24px;
+        }
+        
+        .upload-side h4,
+        .documents-side h4 {
+            color: #e6edf3;
+            margin-bottom: 12px;
+            font-size: 1.1rem;
+            font-weight: 600;
+        }
+        
+        .upload-side p {
+            margin-bottom: 20px;
+            color: #8b949e;
+            font-size: 0.9rem;
+            line-height: 1.5;
+        }
+        
+        .documents-section p {
+            margin-bottom: 32px;
+            color: #8b949e;
+            font-size: 1rem;
+            line-height: 1.6;
+            text-align: center;
+        }
+        
         .upload-container {
             background: #0d1117;
             border: 2px dashed #30363d;
             border-radius: 12px;
-            padding: 30px;
+            padding: 20px;
             text-align: center;
-            margin-bottom: 30px;
+            margin-bottom: 20px;
             transition: border-color 0.2s;
         }
         
@@ -411,13 +448,13 @@ app.get('/', (req, res) => {
             display: flex;
             flex-direction: column;
             align-items: center;
-            gap: 20px;
+            gap: 16px;
         }
         
         .file-input-wrapper {
             position: relative;
             width: 100%;
-            max-width: 400px;
+            max-width: 100%;
         }
         
         .file-input {
@@ -434,16 +471,17 @@ app.get('/', (req, res) => {
             display: flex;
             flex-direction: column;
             align-items: center;
-            gap: 12px;
-            padding: 24px;
+            gap: 8px;
+            padding: 16px 20px;
             background: #21262d;
             border: 1px solid #30363d;
-            border-radius: 12px;
+            border-radius: 8px;
             color: #58a6ff;
             cursor: pointer;
             transition: all 0.2s;
-            min-height: 120px;
+            min-height: 80px;
             justify-content: center;
+            width: 100%;
         }
         
         .file-input-label:hover {
@@ -452,16 +490,17 @@ app.get('/', (req, res) => {
         }
         
         .file-input-label svg {
-            width: 48px;
-            height: 48px;
+            width: 32px;
+            height: 32px;
             color: #58a6ff;
         }
         
         .selected-file-name {
             font-size: 0.9rem;
             color: #8b949e;
-            margin-top: 8px;
+            margin-top: 4px;
             word-break: break-all;
+            max-width: 100%;
         }
         
         .upload-btn {
@@ -469,14 +508,16 @@ app.get('/', (req, res) => {
             color: white;
             border: none;
             border-radius: 8px;
-            padding: 14px 28px;
+            padding: 16px 20px;
             cursor: pointer;
             display: flex;
             align-items: center;
-            gap: 10px;
+            gap: 8px;
             transition: background-color 0.2s;
-            font-size: 1rem;
+            font-size: 0.95rem;
             font-weight: 500;
+            width: 100%;
+            justify-content: center;
         }
         
         .upload-btn:hover {
@@ -509,11 +550,31 @@ app.get('/', (req, res) => {
             color: #f85149;
         }
         
-        .documents-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-            gap: 16px;
-            margin-top: 20px;
+        .documents-list {
+            max-height: 400px;
+            overflow-y: auto;
+            background: #0d1117;
+            border: 1px solid #30363d;
+            border-radius: 8px;
+            padding: 16px;
+        }
+        
+        .documents-list::-webkit-scrollbar {
+            width: 8px;
+        }
+        
+        .documents-list::-webkit-scrollbar-track {
+            background: #0d1117;
+            border-radius: 4px;
+        }
+        
+        .documents-list::-webkit-scrollbar-thumb {
+            background: #30363d;
+            border-radius: 4px;
+        }
+        
+        .documents-list::-webkit-scrollbar-thumb:hover {
+            background: #58a6ff;
         }
         
         .document-item {
@@ -522,6 +583,11 @@ app.get('/', (req, res) => {
             border-radius: 8px;
             padding: 16px;
             transition: all 0.2s;
+            margin-bottom: 12px;
+        }
+        
+        .document-item:last-child {
+            margin-bottom: 0;
         }
         
         .document-item:hover {
@@ -693,10 +759,11 @@ app.get('/', (req, res) => {
         }
         
         .feature-list li {
-            padding: 12px 0;
+            padding: 16px 0;
             border-bottom: 1px solid #30363d;
             display: flex;
-            align-items: center;
+            align-items: flex-start;
+            gap: 16px;
         }
         
         .feature-list li:last-child {
@@ -704,9 +771,72 @@ app.get('/', (req, res) => {
         }
         
         .feature-icon {
-            color: #238636;
-            margin-right: 12px;
-            font-size: 1.2rem;
+            color: #58a6ff;
+            font-size: 1.5rem;
+            flex-shrink: 0;
+            margin-top: 2px;
+        }
+        
+        .feature-content {
+            flex: 1;
+            min-width: 0;
+        }
+        
+        .feature-title {
+            font-weight: 600;
+            color: #e6edf3;
+            margin-bottom: 4px;
+            font-size: 0.95rem;
+        }
+        
+        .feature-description {
+            color: #8b949e;
+            font-size: 0.85rem;
+            line-height: 1.4;
+        }
+        
+        .tech-stack {
+            margin-top: 20px;
+            padding-top: 20px;
+            border-top: 1px solid #30363d;
+        }
+        
+        .tech-stack h4 {
+            color: #58a6ff;
+            margin-bottom: 16px;
+            font-size: 1.1rem;
+            font-weight: 600;
+        }
+        
+        .tech-grid {
+            display: grid;
+            gap: 12px;
+        }
+        
+        .tech-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 16px;
+            background: #0d1117;
+            border: 1px solid #30363d;
+            border-radius: 8px;
+            transition: border-color 0.2s;
+        }
+        
+        .tech-item:hover {
+            border-color: #58a6ff;
+        }
+        
+        .tech-name {
+            font-weight: 600;
+            color: #e6edf3;
+            font-size: 0.9rem;
+        }
+        
+        .tech-desc {
+            color: #8b949e;
+            font-size: 0.8rem;
         }
         
         .footer {
@@ -726,6 +856,21 @@ app.get('/', (req, res) => {
                 gap: 16px;
             }
             
+            .chat-interface,
+            .features {
+                height: auto;
+                min-height: 500px;
+            }
+            
+            .documents-layout {
+                grid-template-columns: 1fr;
+                gap: 20px;
+            }
+            
+            .documents-list {
+                max-height: 300px;
+            }
+            
             .dashboard {
                 grid-template-columns: 1fr;
             }
@@ -734,17 +879,17 @@ app.get('/', (req, res) => {
                 grid-template-columns: 1fr;
             }
             
-            .documents-grid {
-                grid-template-columns: 1fr;
-            }
-            
             .upload-container {
                 padding: 20px;
             }
             
             .file-input-label {
-                min-height: 100px;
-                padding: 20px;
+                min-height: 70px;
+                padding: 14px 16px;
+            }
+            
+            .file-input-wrapper {
+                max-width: 280px;
             }
             
             .chat-interface {
@@ -752,7 +897,8 @@ app.get('/', (req, res) => {
             }
             
             .chat-messages {
-                height: 300px;
+                height: auto;
+                min-height: 300px;
             }
             
             .container {
@@ -779,7 +925,7 @@ app.get('/', (req, res) => {
                     <div class="chat-messages" id="chatMessages">
                         <div class="message bot-message">
                             <div class="message-content">
-                                <div class="message-text">Welcome! I’m your AI assistant. Ask me anything - as you would with GPT-4 - and I’ll combine reasoning with retrieval from my knowledge base. You can even upload your documents to expand what I know.</div>
+                                <div class="message-text">Hi! I’m your AI assistant. Ask me anything, and I’ll combine reasoning with retrieval from my knowledge base. You can even upload your documents to expand what I know.</div>
                                 <div class="message-timestamp">Just now</div>
                             </div>
                         </div>
@@ -807,105 +953,104 @@ app.get('/', (req, res) => {
             <div class="features">
                 <h3>🚀 Bot Features</h3>
                 <ul class="feature-list">
-                    <li><span class="feature-icon">✅</span> Natural language conversations with GPT-4</li>
-                    <li><span class="feature-icon">✅</span> RAG-powered responses using your knowledge base</li>
-                    <li><span class="feature-icon">✅</span> Vector search for semantic understanding</li>
-                    <li><span class="feature-icon">✅</span> Conversation memory and context</li>
-                    <li><span class="feature-icon">✅</span> Cloud-deployed and always available</li>
-                    <li><span class="feature-icon">✅</span> Health monitoring and status checks</li>
-                    <li><span class="feature-icon">✅</span> Web chat interface for testing</li>
-                    <li><span class="feature-icon">✅</span> Document upload and processing</li>
-                    <li><span class="feature-icon">✅</span> Enhanced RAG with multiple sources</li>
+                    <li>
+                        <span class="feature-icon">🤖</span>
+                        <div class="feature-content">
+                            <div class="feature-title">GPT-4 + RAG</div>
+                            <div class="feature-description">Advanced AI with knowledge retrieval</div>
+                        </div>
+                    </li>
+                    <li>
+                        <span class="feature-icon">🔍</span>
+                        <div class="feature-content">
+                            <div class="feature-title">Azure AI Search</div>
+                            <div class="feature-description">Vector + keyword search</div>
+                        </div>
+                    </li>
+                    <li>
+                        <span class="feature-icon">📄</span>
+                        <div class="feature-content">
+                            <div class="feature-title">Document Processing</div>
+                            <div class="feature-description">PDF & Word upload & chunking</div>
+                        </div>
+                    </li>
+                    <li>
+                        <span class="feature-icon">🧠</span>
+                        <div class="feature-content">
+                            <div class="feature-title">Conversation Memory</div>
+                            <div class="feature-description">Context across sessions</div>
+                        </div>
+                    </li>
+                    <li>
+                        <span class="feature-icon">⚡</span>
+                        <div class="feature-content">
+                            <div class="feature-title">Performance Optimized</div>
+                            <div class="feature-description">Parallel processing & caching</div>
+                        </div>
+                    </li>
                 </ul>
+                
+                <div class="tech-stack">
+                    <h4>🛠️ Built With</h4>
+                    <div class="tech-grid">
+                        <div class="tech-item">
+                            <span class="tech-name">GPT-4</span>
+                            <span class="tech-desc">Advanced AI Model</span>
+                        </div>
+                        <div class="tech-item">
+                            <span class="tech-name">Azure AI Foundry</span>
+                            <span class="tech-desc">AI Infrastructure</span>
+                        </div>
+                        <div class="tech-item">
+                            <span class="tech-name">Azure AI Search</span>
+                            <span class="tech-desc">Vector Search Engine</span>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
         
         <div class="documents-section">
-            <h3>📄 Upload Documents</h3>
-            <p>Upload PDF or Word documents to enhance your bot's knowledge base</p>
-            
-            <div class="upload-container">
-                <form id="uploadForm" class="upload-form">
-                    <div class="file-input-wrapper">
-                        <input 
-                            type="file" 
-                            id="documentInput" 
-                            accept=".pdf,.doc,.docx"
-                            class="file-input"
-                        >
-                        <label for="documentInput" class="file-input-label">
-                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                <path d="M14 2H6C5.46957 2 4.96086 2.21071 4.58579 2.58579C4.21071 2.96086 4 3.46957 4 4V20C4 20.5304 4.21071 21.0391 4.58579 21.4142C4.96086 21.7893 5.46957 22 6 22H18C18.5304 22 19.0391 21.7893 19.4142 21.4142C19.7893 21.0391 20 20.5304 20 20V8L14 2Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                                <path d="M14 2V8H20" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                                <path d="M16 13H8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                                <path d="M16 17H8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                                <path d="M10 9H8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                            </svg>
-                            Choose File
-                        </label>
-                        <span id="selectedFileName" class="selected-file-name"></span>
+            <h3>📄 Document Management</h3>
+            <div class="documents-layout">
+                <div class="upload-side">
+                    <h4>Upload New Documents</h4>
+                    <p>Upload PDF or Word documents to enhance your bot's knowledge base</p>
+                    
+                    <div class="upload-container">
+                        <form id="uploadForm" class="upload-form">
+                            <div class="file-input-wrapper">
+                                <input 
+                                    type="file" 
+                                    id="documentInput" 
+                                    accept=".pdf,.doc,.docx"
+                                    class="file-input"
+                                >
+                                <label for="documentInput" class="file-input-label">
+                                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                        <path d="M14 2H6C5.46957 2 4.96086 2.21071 4.58579 2.58579C4.21071 2.96086 4 3.46957 4 4V20C4 20.5304 4.21071 21.0391 4.58579 21.4142C4.96086 21.7893 5.46957 22 6 22H18C18.5304 22 19.0391 21.7893 19.4142 21.4142C19.7893 21.0391 20 20.5304 20 20V8L14 2Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                        <path d="M14 2V8H20" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                        <path d="M16 13H8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                        <path d="M16 17H8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                        <path d="M10 9H8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                    </svg>
+                                    Choose File
+                                </label>
+                                <span id="selectedFileName" class="selected-file-name"></span>
+                            </div>
+                            <button type="submit" class="upload-btn" id="uploadBtn" disabled>
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M21 15V19C21 19.5304 20.7893 20.0391 20.4142 20.4142C20.0391 20.7893 19.5304 21 19 21H5C4.46957 21 3.96086 20.7893 3.58579 20.4142C3.21071 20.0391 3 19.5304 3 19V15" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M7 10L12 15L17 10" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 15V3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg> Upload Document
+                            </button>
+                        </form>
                     </div>
-                    <button type="submit" class="upload-btn" id="uploadBtn" disabled>
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M21 15V19C21 19.5304 20.7893 20.0391 20.4142 20.4142C20.0391 20.7893 19.5304 21 19 21H5C4.46957 21 3.96086 20.7893 3.58579 20.4142C3.21071 20.0391 3 19.5304 3 19V15" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M7 10L12 15L17 10" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 15V3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg> Upload Document
-                    </button>
-                </form>
-            </div>
-            
-            <div class="upload-status" id="uploadStatus"></div>
-        </div>
-        
-        <div class="documents-section">
-            <h3>📚 Your Documents</h3>
-            <div id="documentsList" class="documents-grid">
-                <div class="loading">Loading documents...</div>
-            </div>
-        </div>
-        
-        <div class="dashboard">
-            <div class="card">
-                <h3><span class="status-indicator"></span>Bot Status</h3>
-                <div class="metric">Online</div>
-                <p>Your bot is running smoothly on Railway</p>
-                <div class="info-grid">
-                    <div class="info-item">
-                        <div class="info-label">Environment</div>
-                        <div class="info-value">${NODE_ENV}</div>
-                    </div>
-                    <div class="info-item">
-                        <div class="info-label">Mode</div>
-                        <div class="info-value">${isWebhookMode ? 'Webhook' : 'Polling'}</div>
-                    </div>
+                    
+                    <div class="upload-status" id="uploadStatus"></div>
                 </div>
-            </div>
-            
-            <div class="card">
-                <h3>📊 Performance</h3>
-                <div class="metric">${uptimeFormatted}</div>
-                <p>Uptime since last restart</p>
-                <div class="info-grid">
-                    <div class="info-item">
-                        <div class="info-label">Port</div>
-                        <div class="info-value">${PORT}</div>
-                    </div>
-                    <div class="info-item">
-                        <div class="info-label">Health Check</div>
-                        <div class="info-value"><a href="/health">/health</a></div>
-                    </div>
-                </div>
-            </div>
-            
-            <div class="card">
-                <h3>🔗 Services</h3>
-                <div class="metric">Azure</div>
-                <p>Connected to OpenAI & AI Search</p>
-                <div class="info-grid">
-                    <div class="info-item">
-                        <div class="info-label">AI Model</div>
-                        <div class="info-value">GPT-4</div>
-                    </div>
-                    <div class="info-item">
-                        <div class="info-label">Search</div>
-                        <div class="info-value">Vector + Keyword</div>
+                
+                <div class="documents-side">
+                    <h4>Your Documents</h4>
+                    <div id="documentsList" class="documents-list">
+                        <div class="loading">Loading documents...</div>
                     </div>
                 </div>
             </div>

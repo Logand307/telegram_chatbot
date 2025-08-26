@@ -2,7 +2,7 @@
 require('dotenv/config');
 const TelegramBot = require('node-telegram-bot-api').default || require('node-telegram-bot-api');
 const axios = require('axios');
-const { SearchClient, AzureKeyCredential } = require('@azure/search-documents');
+const { SearchClient, AzureKeyCredential, SearchIndexClient } = require('@azure/search-documents');
 const express = require('express');
 const { createServer } = require('http');
 const multer = require('multer');
@@ -11,6 +11,183 @@ const mammoth = require('mammoth');
 const fs = require('fs-extra');
 const path = require('path');
 const { v4: uuidv4 } = require('uuid');
+
+/* ==== Warm-up and Health Check Functions ==== */
+async function testAzureOpenAI() {
+  console.log('🔍 Testing Azure OpenAI connection...');
+  try {
+    // Test embeddings endpoint
+    const testText = 'test';
+    const response = await axios.post(
+      AZURE_OPENAI_EMBEDDINGS_URL,
+      { input: testText },
+      {
+        headers: {
+          'api-key': AZURE_OPENAI_API_KEY,
+          'Content-Type': 'application/json'
+        },
+        timeout: 30000
+      }
+    );
+    
+    if (response.data?.data?.[0]?.embedding) {
+      console.log('✅ Azure OpenAI embeddings: OK');
+      return true;
+    } else {
+      console.log('❌ Azure OpenAI embeddings: Invalid response format');
+      return false;
+    }
+  } catch (error) {
+    console.error('❌ Azure OpenAI embeddings test failed:', error.message);
+    return false;
+  }
+}
+
+async function testAzureSearch() {
+  console.log('🔍 Testing Azure Search connection...');
+  try {
+    // Test search client
+    const searchClient = new SearchClient(
+      AZURE_SEARCH_ENDPOINT,
+      AZURE_SEARCH_INDEX,
+      new AzureKeyCredential(AZURE_SEARCH_API_KEY)
+    );
+    
+    // Test basic search operation
+    const results = await searchClient.search('test', { top: 1 });
+    console.log('✅ Azure Search: OK');
+    return true;
+  } catch (error) {
+    console.error('❌ Azure Search test failed:', error.message);
+    return false;
+  }
+}
+
+async function ensureSearchIndex() {
+  console.log('🔍 Ensuring Azure Search index exists...');
+  try {
+    const indexClient = new SearchIndexClient(
+      AZURE_SEARCH_ENDPOINT,
+      new AzureKeyCredential(AZURE_SEARCH_API_KEY)
+    );
+    
+    // Check if index exists
+    try {
+      await indexClient.getIndex(AZURE_SEARCH_INDEX);
+      console.log('✅ Azure Search index exists');
+      return true;
+    } catch (error) {
+      if (error.statusCode === 404) {
+        console.log('⚠️ Azure Search index not found, creating...');
+        const indexDefinition = {
+          name: AZURE_SEARCH_INDEX,
+          fields: [
+            { name: 'id', type: 'Edm.String', key: true },
+            { name: 'title', type: 'Edm.String', searchable: true },
+            { name: 'url', type: 'Edm.String', filterable: true, searchable: true },
+            { name: 'content', type: 'Edm.String', searchable: true },
+            {
+              name: 'contentVector',
+              type: 'Collection(Edm.Single)',
+              searchable: true,
+              vectorSearchDimensions: 1536,
+              vectorSearchProfileName: 'myHnswProfile'
+            }
+          ],
+          vectorSearch: {
+            algorithms: [
+              { name: 'myHnsw', kind: 'hnsw' }
+            ],
+            profiles: [
+              { name: 'myHnswProfile', algorithmConfigurationName: 'myHnsw' }
+            ]
+          }
+        };
+        
+        await indexClient.createIndex(indexDefinition);
+        console.log('✅ Azure Search index created successfully');
+        return true;
+      } else {
+        throw error;
+      }
+    }
+  } catch (error) {
+    console.error('❌ Failed to ensure Azure Search index:', error.message);
+    return false;
+  }
+}
+
+async function warmUpServices() {
+  console.log('🚀 Starting service warm-up routine...');
+  const startTime = Date.now();
+  
+  const results = {
+    azureOpenAI: false,
+    azureSearch: false,
+    searchIndex: false
+  };
+  
+  // Test Azure OpenAI
+  results.azureOpenAI = await testAzureOpenAI();
+  
+  // Test Azure Search
+  results.azureSearch = await testAzureSearch();
+  
+  // Ensure search index exists
+  results.searchIndex = await ensureSearchIndex();
+  
+  const warmUpTime = Date.now() - startTime;
+  console.log(`⏱️ Warm-up completed in ${warmUpTime}ms`);
+  console.log('📊 Warm-up results:', results);
+  
+  return results;
+}
+
+/* ==== Retry Logic with Exponential Backoff ==== */
+async function retryWithBackoff(operation, maxRetries = 3, baseDelay = 1000) {
+  let lastError;
+  
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      return await operation();
+    } catch (error) {
+      lastError = error;
+      console.log(`⚠️ Operation failed (attempt ${attempt}/${maxRetries}):`, error.message);
+      
+      if (attempt === maxRetries) {
+        console.error(`❌ Operation failed after ${maxRetries} attempts`);
+        throw lastError;
+      }
+      
+      // Exponential backoff with jitter
+      const delay = baseDelay * Math.pow(2, attempt - 1) + Math.random() * 1000;
+      console.log(`⏳ Retrying in ${Math.round(delay)}ms...`);
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
+  }
+}
+
+/* ==== Comprehensive Upload Process Logging ==== */
+function logUploadProcess(phase, details = {}) {
+  const timestamp = new Date().toISOString();
+  const logEntry = {
+    timestamp,
+    phase,
+    ...details
+  };
+  
+  console.log(`📋 [UPLOAD] ${phase}:`, JSON.stringify(logEntry, null, 2));
+  
+  // Store in memory for debugging (keep last 100 entries)
+  if (!global.uploadLogs) {
+    global.uploadLogs = [];
+  }
+  
+  global.uploadLogs.push(logEntry);
+  if (global.uploadLogs.length > 100) {
+    global.uploadLogs.shift();
+  }
+}
 
 /* ==== Env validation ==== */
 const {
@@ -146,6 +323,76 @@ app.get('/test-azure', async (req, res) => {
     };
     
     res.json(results);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Manual warm-up trigger endpoint
+app.post('/warmup', async (req, res) => {
+  try {
+    console.log('🔥 Manual warm-up triggered via API');
+    const results = await warmUpServices();
+    
+    res.json({
+      success: true,
+      message: 'Warm-up completed',
+      timestamp: new Date().toISOString(),
+      results: results,
+      allServicesReady: results.azureOpenAI && results.azureSearch && results.searchIndex
+    });
+  } catch (error) {
+    console.error('❌ Manual warm-up failed:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Warm-up failed',
+      details: error.message
+    });
+  }
+});
+
+// Service status endpoint
+app.get('/status', async (req, res) => {
+  try {
+    const status = {
+      timestamp: new Date().toISOString(),
+      uptime: process.uptime(),
+      environment: NODE_ENV,
+      services: {
+        azure_openai: {
+          configured: !!(AZURE_OPENAI_URL && AZURE_OPENAI_API_KEY),
+          url: AZURE_OPENAI_URL ? 'Configured' : 'Missing',
+          api_key: AZURE_OPENAI_API_KEY ? 'Configured' : 'Missing'
+        },
+        azure_search: {
+          configured: !!(AZURE_SEARCH_ENDPOINT && AZURE_SEARCH_API_KEY && AZURE_SEARCH_INDEX),
+          endpoint: AZURE_SEARCH_ENDPOINT ? 'Configured' : 'Missing',
+          api_key: AZURE_SEARCH_API_KEY ? 'Configured' : 'Missing',
+            index: AZURE_SEARCH_INDEX ? 'Configured' : 'Missing'
+        }
+      },
+      documents: {
+        uploaded: uploadedDocuments.size,
+        cache_size: embeddingCache.size
+      }
+    };
+    
+    res.json(status);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Endpoint to view upload logs for debugging
+app.get('/upload-logs', (req, res) => {
+  try {
+    const logs = global.uploadLogs || [];
+    res.json({
+      success: true,
+      logs: logs,
+      count: logs.length,
+      timestamp: new Date().toISOString()
+    });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -1044,7 +1291,14 @@ app.get('/', (req, res) => {
                         </form>
                     </div>
                     
-                    <div class="upload-status" id="uploadStatus"></div>
+                                         <div class="upload-status" id="uploadStatus">
+                         <div style="color: #8b949e;">⏳ Checking service readiness...</div>
+                     </div>
+                     <div style="margin-top: 16px; text-align: center;">
+                         <button onclick="checkServiceReadiness()" style="background: #30363d; color: #e6edf3; border: 1px solid #58a6ff; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 0.9rem;">
+                             🔄 Check Services
+                         </button>
+                     </div>
                 </div>
                 
                 <div class="documents-side">
@@ -1063,30 +1317,33 @@ app.get('/', (req, res) => {
     
     <script>
         // Add some interactivity
-        document.addEventListener('DOMContentLoaded', function() {
-            // Update uptime every second
-            setInterval(function() {
-                fetch('/health')
-                    .then(response => response.json())
-                    .then(data => {
-                        const uptimeElement = document.querySelector('.metric');
-                        if (uptimeElement && uptimeElement.textContent.includes(':')) {
-                            const uptime = data.uptime;
-                            uptimeElement.textContent = formatUptime(uptime);
-                        }
-                    })
-                    .catch(console.error);
-            }, 1000);
-            
-            // Chat functionality
-            setupChat();
-            
-            // File upload functionality
-            setupFileUpload();
-            
-            // Load documents
-            loadDocuments();
-        });
+         document.addEventListener('DOMContentLoaded', function() {
+             // Update uptime every second
+             setInterval(function() {
+                 fetch('/health')
+                     .then(response => response.json())
+                     .then(data => {
+                         const uptimeElement = document.querySelector('.metric');
+                         if (uptimeElement && uptimeElement.textContent.includes(':')) {
+                             const uptime = data.uptime;
+                             uptimeElement.textContent = formatUptime(uptime);
+                         }
+                     })
+                     .catch(console.error);
+             }, 1000);
+             
+             // Chat functionality
+             setupChat();
+             
+             // File upload functionality
+             setupFileUpload();
+             
+             // Load documents
+             loadDocuments();
+             
+             // Check service readiness on page load
+             checkServiceReadiness();
+         });
         
         function setupChat() {
             const chatForm = document.getElementById('chatForm');
@@ -1193,71 +1450,127 @@ app.get('/', (req, res) => {
             return hours.toString().padStart(2, '0') + ':' + minutes.toString().padStart(2, '0') + ':' + secs.toString().padStart(2, '0');
         }
 
-        function setupFileUpload() {
-            const uploadForm = document.getElementById('uploadForm');
-            const documentInput = document.getElementById('documentInput');
-            const uploadBtn = document.getElementById('uploadBtn');
-            const selectedFileName = document.getElementById('selectedFileName');
-            const uploadStatus = document.getElementById('uploadStatus');
+                 // Global state for service readiness
+         let isServicesReady = false;
+         let isWarmupInProgress = false;
+         
+         async function checkServiceReadiness() {
+             if (isWarmupInProgress) return;
+             
+             isWarmupInProgress = true;
+             const uploadStatus = document.getElementById('uploadStatus');
+             const uploadBtn = document.getElementById('uploadBtn');
+             
+             try {
+                 uploadStatus.innerHTML = '<div style="color: #58a6ff;">🔄 Checking service readiness...</div>';
+                 uploadStatus.className = 'upload-status';
+                 
+                 const response = await fetch('/warmup', { method: 'POST' });
+                 const data = await response.json();
+                 
+                 if (data.success && data.allServicesReady) {
+                     isServicesReady = true;
+                     uploadStatus.innerHTML = '<div style="color: #7ee787;">✅ Services ready! You can upload documents.</div>';
+                     uploadStatus.className = 'upload-status success';
+                     
+                     // Enable button if file is selected
+                     const documentInput = document.getElementById('documentInput');
+                     if (documentInput.files[0]) {
+                         uploadBtn.disabled = false;
+                     }
+                 } else {
+                     throw new Error(data.error || 'Service warm-up failed');
+                 }
+             } catch (error) {
+                 console.error('Service readiness check failed:', error);
+                 isServicesReady = false;
+                 
+                 uploadStatus.innerHTML = '<div style="color: #f85149;">❌ Service error: ' + error.message + '<br><button onclick="checkServiceReadiness()" style="background: #1f6feb; color: white; border: none; padding: 8px 16px; border-radius: 4px; margin-top: 8px; cursor: pointer;">Retry</button></div>';
+                 uploadStatus.className = 'upload-status error';
+                 
+                 // Always enable button even if services fail - let user try
+                 uploadBtn.disabled = false;
+             } finally {
+                 isWarmupInProgress = false;
+             }
+         }
+         
+         function setupFileUpload() {
+             const uploadForm = document.getElementById('uploadForm');
+             const documentInput = document.getElementById('documentInput');
+             const uploadBtn = document.getElementById('uploadBtn');
+             const selectedFileName = document.getElementById('selectedFileName');
+             const uploadStatus = document.getElementById('uploadStatus');
+             
+             // Handle file selection
+             documentInput.addEventListener('change', function(e) {
+                 const file = e.target.files[0];
+                 if (file) {
+                     selectedFileName.textContent = file.name;
+                     // Only enable if services are ready OR if we're allowing uploads despite service issues
+                     uploadBtn.disabled = !isServicesReady && !isWarmupInProgress;
+                     uploadStatus.innerHTML = '';
+                 } else {
+                     selectedFileName.textContent = '';
+                     uploadBtn.disabled = true;
+                 }
+             });
             
-            // Handle file selection
-            documentInput.addEventListener('change', function(e) {
-                const file = e.target.files[0];
-                if (file) {
-                    selectedFileName.textContent = file.name;
-                    uploadBtn.disabled = false;
-                    uploadStatus.innerHTML = '';
-                } else {
-                    selectedFileName.textContent = '';
-                    uploadBtn.disabled = true;
-                }
-            });
-            
-            // Handle form submission
-            uploadForm.addEventListener('submit', async function(e) {
-                e.preventDefault();
-                
-                const file = documentInput.files[0];
-                if (!file) return;
-                
-                // Show uploading status
-                uploadBtn.disabled = true;
-                uploadBtn.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 2V6M12 18V22M4.93 4.93L7.76 7.76M16.24 16.24L19.07 19.07M2 12H6M18 12H22M4.93 19.07L7.76 16.24M16.24 7.76L19.07 4.93" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg> Processing...';
-                
-                const formData = new FormData();
-                formData.append('document', file);
-                
-                try {
-                    const response = await fetch('/upload', {
-                        method: 'POST',
-                        body: formData
-                    });
-                    
-                    const data = await response.json();
-                    
-                    if (data.success) {
-                        uploadStatus.innerHTML = \`✅ \${data.message}<br><strong>\${data.document.originalName}</strong> processed successfully!<br>Text length: \${data.document.textLength} characters, \${data.document.chunks} chunks created.\`;
-                        uploadStatus.className = 'upload-status success';
-                        
-                        // Reset form
-                        uploadForm.reset();
-                        selectedFileName.textContent = '';
-                        uploadBtn.disabled = true;
-                        
-                        // Reload documents list
-                        loadDocuments();
-                    } else {
-                        throw new Error(data.error || 'Upload failed');
-                    }
-                } catch (error) {
-                    console.error('Upload error:', error);
-                    uploadStatus.innerHTML = \`❌ Upload failed: \${error.message}\`;
-                    uploadStatus.className = 'upload-status error';
-                } finally {
-                    uploadBtn.disabled = false;
-                    uploadBtn.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M21 15V19C21 19.5304 20.7893 20.0391 20.4142 20.4142C20.0391 20.7893 19.5304 21 19 21H5C4.46957 21 3.96086 20.7893 3.58579 20.4142C3.21071 20.0391 3 19.5304 3 19V15" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M7 10L12 15L17 10" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 15V3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg> Upload Document';
-                }
-            });
+                         // Handle form submission
+             uploadForm.addEventListener('submit', async function(e) {
+                 e.preventDefault();
+                 
+                 const file = documentInput.files[0];
+                 if (!file) return;
+                 
+                 // Check if services are ready
+                 if (!isServicesReady) {
+                     uploadStatus.innerHTML = '<div style="color: #f85149;">❌ Services not ready. Please wait for service check to complete.</div>';
+                     uploadStatus.className = 'upload-status error';
+                     return;
+                 }
+                 
+                 // Show uploading status
+                 uploadBtn.disabled = true;
+                 uploadBtn.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 2V6M12 18V22M4.93 4.93L7.76 7.76M16.24 16.24L19.07 19.07M2 12H6M18 12H22M4.93 19.07L7.76 16.24M16.24 7.76L19.07 4.93" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg> Processing...';
+                 
+                 const formData = new FormData();
+                 formData.append('document', file);
+                 
+                 try {
+                     const response = await fetch('/upload', {
+                         method: 'POST',
+                         body: formData
+                     });
+                     
+                     const data = await response.json();
+                     
+                     if (data.success) {
+                         uploadStatus.innerHTML = '✅ ' + data.message + '<br><strong>' + data.document.originalName + '</strong> processed successfully!<br>Text length: ' + data.document.textLength + ' characters, ' + data.document.chunks + ' chunks created.';
+                         uploadStatus.className = 'upload-status success';
+                         
+                         // Reset form
+                         uploadForm.reset();
+                         selectedFileName.textContent = '';
+                         uploadBtn.disabled = true;
+                         
+                         // Reload documents list
+                         loadDocuments();
+                     } else {
+                         throw new Error(data.error || 'Upload failed');
+                     }
+                 } catch (error) {
+                     console.error('Upload error:', error);
+                     uploadStatus.innerHTML = '❌ Upload failed: ' + error.message;
+                     uploadStatus.className = 'upload-status error';
+                 } finally {
+                     // Re-enable button based on current state
+                     if (documentInput.files[0] && isServicesReady) {
+                         uploadBtn.disabled = false;
+                     }
+                     uploadBtn.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M21 15V19C21 19.5304 20.7893 20.0391 20.4142 20.4142C20.0391 20.7893 19.5304 21 19 21H5C4.46957 21 3.96086 20.7893 3.58579 20.4142C3.21071 20.0391 3 19.5304 3 19V15" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M7 10L12 15L17 10" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 15V3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg> Upload Document';
+                 }
+             });
         }
         
         async function loadDocuments() {
@@ -1305,10 +1618,10 @@ app.get('/', (req, res) => {
                 return;
             }
             
-            try {
-                const response = await fetch(\`/documents/\${documentId}\`, {
-                    method: 'DELETE'
-                });
+                         try {
+                 const response = await fetch('/documents/' + documentId, {
+                     method: 'DELETE'
+                 });
                 
                 const data = await response.json();
                 
@@ -1347,7 +1660,9 @@ app.post('/chat', async (req, res) => {
     
     // Call the exact same function that Telegram uses
     console.log('Calling callAzureOpenAI...');
-    const response = await callAzureOpenAI(chatId, message);
+    const response = await retryWithBackoff(async () => {
+      return await callAzureOpenAI(chatId, message);
+    }, 3, 2000);
     console.log('callAzureOpenAI completed, response:', response);
     
     // Get sources from the conversation history
@@ -1399,31 +1714,74 @@ app.post('/chat', async (req, res) => {
 
 // File upload endpoint
 app.post('/upload', upload.single('document'), async (req, res) => {
+  const uploadStartTime = Date.now();
+  const uploadId = uuidv4();
+  
   try {
     if (!req.file) {
       return res.status(400).json({ error: 'No file uploaded' });
     }
     
-    console.log('File uploaded:', req.file.originalname, 'Size:', req.file.size);
+    logUploadProcess('STARTED', {
+      uploadId,
+      fileName: req.file.originalname,
+      fileSize: req.file.size,
+      mimeType: req.file.mimetype,
+      timestamp: uploadStartTime
+    });
     
-    // Process the document
-    const documentInfo = await processDocument(
-      req.file.path,
-      req.file.originalname,
-      req.file.mimetype
-    );
+    console.log(`📤 File upload started: ${req.file.originalname} (${req.file.size} bytes, ${req.file.mimetype})`);
+    
+    // Process the document with retry logic
+    logUploadProcess('PROCESSING', { uploadId, phase: 'document_processing' });
+    
+    const documentInfo = await retryWithBackoff(async () => {
+      return await processDocument(
+        req.file.path,
+        req.file.originalname,
+        req.file.mimetype
+      );
+    }, 3, 2000);
+    
+    logUploadProcess('PROCESSING_COMPLETE', { 
+      uploadId, 
+      documentId: documentInfo.id,
+      chunks: documentInfo.chunks,
+      embeddings: documentInfo.embeddings 
+    });
     
     // Clean up uploaded file
+    logUploadProcess('CLEANUP', { uploadId, phase: 'file_cleanup' });
     await fs.remove(req.file.path);
+    
+    const uploadTime = Date.now() - uploadStartTime;
+    logUploadProcess('COMPLETED', { 
+      uploadId, 
+      processingTime: uploadTime,
+      documentId: documentInfo.id 
+    });
+    
+    console.log(`🎉 File upload completed successfully in ${uploadTime}ms`);
     
     res.json({
       success: true,
       message: 'Document processed successfully',
-      document: documentInfo
+      document: documentInfo,
+      processingTime: uploadTime,
+      uploadId
     });
     
   } catch (error) {
-    console.error('File upload error:', error);
+    const uploadTime = Date.now() - uploadStartTime;
+    
+    logUploadProcess('FAILED', { 
+      uploadId, 
+      error: error.message,
+      processingTime: uploadTime,
+      stack: error.stack
+    });
+    
+    console.error(`❌ File upload failed after ${uploadTime}ms:`, error);
     
     // Clean up uploaded file on error
     if (req.file) {
@@ -1432,7 +1790,9 @@ app.post('/upload', upload.single('document'), async (req, res) => {
     
     res.status(500).json({
       error: 'Failed to process document',
-      details: error.message
+      details: error.message,
+      processingTime: uploadTime,
+      uploadId
     });
   }
 });
@@ -1607,18 +1967,30 @@ async function embedText(text) {
     return cachedEmbedding;
   }
 
-  const r = await axios.post(
-    AZURE_OPENAI_EMBEDDINGS_URL,
-    { input: text },
-    {
-      headers: {
-        'api-key': AZURE_OPENAI_API_KEY,
-        'Content-Type': 'application/json'
-      },
-      timeout: 20000
+  console.log(`🔍 Generating embedding for text (${text.length} chars)...`);
+  
+  const embedding = await retryWithBackoff(async () => {
+    const r = await axios.post(
+      AZURE_OPENAI_EMBEDDINGS_URL,
+      { input: text },
+      {
+        headers: {
+          'api-key': AZURE_OPENAI_API_KEY,
+          'Content-Type': 'application/json'
+        },
+        timeout: 30000
+      }
+    );
+    
+    const result = r.data?.data?.[0]?.embedding;
+    if (!result || !Array.isArray(result)) {
+      throw new Error('Invalid embedding response format');
     }
-  );
-  const embedding = r.data?.data?.[0]?.embedding;
+    
+    console.log(`✅ Embedding generated successfully (${result.length} dimensions)`);
+    return result;
+  }, 3, 2000);
+  
   embeddingCache.set(text, embedding);
   return embedding;
 }
@@ -1626,86 +1998,150 @@ async function embedText(text) {
 /* ==== Document Processing Functions ==== */
 async function extractTextFromPDF(filePath) {
   try {
-    const dataBuffer = await fs.readFile(filePath);
-    const data = await pdfParse(dataBuffer);
+    console.log('📖 Reading PDF file...');
+    const dataBuffer = await retryWithBackoff(async () => {
+      return await fs.readFile(filePath);
+    }, 2, 1000);
+    
+    console.log('🔍 Parsing PDF content...');
+    const data = await retryWithBackoff(async () => {
+      return await pdfParse(dataBuffer);
+    }, 2, 1000);
+    
+    console.log(`✅ PDF text extracted: ${data.text.length} characters`);
     return data.text;
   } catch (error) {
-    console.error('Error extracting text from PDF:', error);
+    console.error('❌ Error extracting text from PDF:', error);
     throw new Error('Failed to extract text from PDF');
   }
 }
 
 async function extractTextFromWord(filePath) {
   try {
-    const result = await mammoth.extractRawText({ path: filePath });
+    console.log('📝 Reading Word document...');
+    const result = await retryWithBackoff(async () => {
+      return await mammoth.extractRawText({ path: filePath });
+    }, 2, 1000);
+    
+    console.log(`✅ Word document text extracted: ${result.value.length} characters`);
     return result.value;
   } catch (error) {
-    console.error('Error extracting text from Word document:', error);
+    console.error('❌ Error extracting text from Word document:', error);
     throw new Error('Failed to extract text from Word document');
   }
 }
 
 async function processDocument(filePath, originalName, mimeType) {
-  let text;
+  console.log(`📄 Processing document: ${originalName} (${mimeType})`);
+  const startTime = Date.now();
   
-  if (mimeType === 'application/pdf') {
-    text = await extractTextFromPDF(filePath);
-  } else if (mimeType.includes('word')) {
-    text = await extractTextFromWord(filePath);
-  } else {
-    throw new Error('Unsupported file type');
-  }
-  
-  // Clean and chunk the text
-  const cleanedText = text.replace(/\s+/g, ' ').trim();
-  
-  // Split into chunks (roughly 1000 characters each)
-  const chunks = [];
-  const chunkSize = 1000;
-  const overlap = 200;
-  
-  for (let i = 0; i < cleanedText.length; i += chunkSize - overlap) {
-    const chunk = cleanedText.slice(i, i + chunkSize);
-    if (chunk.trim().length > 50) { // Only add chunks with meaningful content
-      chunks.push(chunk);
+  try {
+    let text;
+    
+    if (mimeType === 'application/pdf') {
+      console.log('📖 Extracting text from PDF...');
+      text = await extractTextFromPDF(filePath);
+    } else if (mimeType.includes('word')) {
+      console.log('📝 Extracting text from Word document...');
+      text = await extractTextFromWord(filePath);
+    } else {
+      throw new Error('Unsupported file type');
     }
-  }
-  
-  // Process embeddings in parallel batches for better performance
-  const embeddings = [];
-  for (let i = 0; i < chunks.length; i += BATCH_SIZE) {
-    const batch = chunks.slice(i, i + BATCH_SIZE);
-    const batchPromises = batch.map(async (chunk) => {
-      const embedding = await embedText(chunk);
-      return embedding ? { content: chunk, contentVector: embedding } : null;
+    
+    console.log(`📊 Extracted ${text.length} characters of text`);
+    
+    // Clean and chunk the text
+    const cleanedText = text.replace(/\s+/g, ' ').trim();
+    
+    // Split into chunks (roughly 1000 characters each)
+    const chunks = [];
+    const chunkSize = 1000;
+    const overlap = 200;
+    
+    for (let i = 0; i < cleanedText.length; i += chunkSize - overlap) {
+      const chunk = cleanedText.slice(i, i + chunkSize);
+      if (chunk.trim().length > 50) { // Only add chunks with meaningful content
+        chunks.push(chunk);
+      }
+    }
+    
+    console.log(`✂️ Split text into ${chunks.length} chunks`);
+    
+    // Process embeddings in parallel batches for better performance
+    console.log('🧠 Generating embeddings for chunks...');
+    const embeddings = [];
+    for (let i = 0; i < chunks.length; i += BATCH_SIZE) {
+      const batch = chunks.slice(i, i + BATCH_SIZE);
+      const batchNumber = Math.floor(i / BATCH_SIZE) + 1;
+      const totalBatches = Math.ceil(chunks.length / BATCH_SIZE);
+      
+      console.log(`📦 Processing batch ${batchNumber}/${totalBatches} (${batch.length} chunks)`);
+      
+      const batchStartTime = Date.now();
+      const batchPromises = batch.map(async (chunk, index) => {
+        try {
+          const chunkStartTime = Date.now();
+          const embedding = await embedText(chunk);
+          const chunkTime = Date.now() - chunkStartTime;
+          
+          if (embedding) {
+            console.log(`✅ Chunk ${i + index + 1} embedded in ${chunkTime}ms`);
+            return { content: chunk, contentVector: embedding };
+          } else {
+            console.warn(`⚠️ Chunk ${i + index + 1} returned null embedding`);
+            return null;
+          }
+        } catch (error) {
+          console.error(`❌ Failed to generate embedding for chunk ${i + index + 1}:`, error.message);
+          return null;
+        }
+      });
+      
+      const batchResults = await Promise.all(batchPromises);
+      const validResults = batchResults.filter(Boolean);
+      embeddings.push(...validResults);
+      
+      const batchTime = Date.now() - batchStartTime;
+      console.log(`📊 Batch ${batchNumber}/${totalBatches} completed in ${batchTime}ms: ${validResults.length}/${batch.length} successful`);
+      
+      if (validResults.length !== batch.length) {
+        console.warn(`⚠️ Only ${validResults.length}/${batch.length} embeddings generated successfully for batch ${batchNumber}`);
+      }
+    }
+    
+    console.log(`✅ Successfully generated ${embeddings.length}/${chunks.length} embeddings`);
+    
+    // Store document info
+    const documentId = uuidv4();
+    const documentInfo = {
+      id: documentId,
+      originalName,
+      mimeType,
+      uploadDate: new Date().toISOString(),
+      textLength: cleanedText.length,
+      chunks: chunks.length,
+      embeddings: embeddings.length
+    };
+    
+    uploadedDocuments.set(documentId, documentInfo);
+    
+    // Store processed chunks
+    const chunksPath = path.join(documentsDir, `${documentId}.json`);
+    await fs.writeJson(chunksPath, {
+      documentInfo,
+      chunks: embeddings
     });
     
-    const batchResults = await Promise.all(batchPromises);
-    embeddings.push(...batchResults.filter(Boolean));
+    const processingTime = Date.now() - startTime;
+    console.log(`🎉 Document processed successfully in ${processingTime}ms`);
+    console.log(`📊 Final stats: ${embeddings.length} embeddings, ${chunks.length} chunks, ${cleanedText.length} characters`);
+    
+    return documentInfo;
+  } catch (error) {
+    const processingTime = Date.now() - startTime;
+    console.error(`❌ Document processing failed after ${processingTime}ms:`, error.message);
+    throw error;
   }
-  
-  // Store document info
-  const documentId = uuidv4();
-  const documentInfo = {
-    id: documentId,
-    originalName,
-    mimeType,
-    uploadDate: new Date().toISOString(),
-    textLength: cleanedText.length,
-    chunks: chunks.length,
-    embeddings: embeddings.length
-  };
-  
-  uploadedDocuments.set(documentId, documentInfo);
-  
-  // Store processed chunks
-  const chunksPath = path.join(documentsDir, `${documentId}.json`);
-  await fs.writeJson(chunksPath, {
-    documentInfo,
-    chunks: embeddings
-  });
-  
-  return documentInfo;
 }
 
 /**
@@ -1738,19 +2174,23 @@ async function retrieve(question, k = 4) {
 
 async function searchAzureIndex(question, vector, k) {
   try {
-    const searchResults = await searchClient.search(question, {
-      top: k,
-      vectorSearchOptions: {
-        queries: [
-          {
-            kind: 'vector',
-            vector,
-            fields: ['contentVector'],
-            kNearestNeighborsCount: k
-          }
-        ]
-      }
-    });
+    console.log(`🔍 Searching Azure Search index for: "${question}"`);
+    
+    const searchResults = await retryWithBackoff(async () => {
+      return await searchClient.search(question, {
+        top: k,
+        vectorSearchOptions: {
+          queries: [
+            {
+              kind: 'vector',
+              vector,
+              fields: ['contentVector'],
+              kNearestNeighborsCount: k
+            }
+          ]
+        }
+      });
+    }, 3, 1000);
 
     const results = [];
     for await (const r of searchResults.results) {
@@ -1763,9 +2203,11 @@ async function searchAzureIndex(question, vector, k) {
         similarity: 0.8 // Default similarity for Azure results
       });
     }
+    
+    console.log(`✅ Azure Search returned ${results.length} results`);
     return results;
   } catch (error) {
-    console.error('Azure Search error:', error);
+    console.error('❌ Azure Search error:', error);
     return [];
   }
 }
@@ -1904,17 +2346,19 @@ async function callAzureOpenAI(chatId, userText) {
     console.log('Calling Azure OpenAI with URL:', AZURE_OPENAI_URL);
     console.log('Messages being sent:', JSON.stringify(messages, null, 2));
     
-    const r = await axios.post(
-      AZURE_OPENAI_URL,
-      { messages, temperature: 0.2 },
-      {
-        headers: {
-          'api-key': AZURE_OPENAI_API_KEY,
-          'Content-Type': 'application/json'
-        },
-        timeout: 30000
-      }
-    );
+    const r = await retryWithBackoff(async () => {
+      return await axios.post(
+        AZURE_OPENAI_URL,
+        { messages, temperature: 0.2 },
+        {
+          headers: {
+            'api-key': AZURE_OPENAI_API_KEY,
+            'Content-Type': 'application/json'
+          },
+          timeout: 30000
+        }
+      );
+    }, 3, 2000);
 
     console.log('Azure OpenAI response received');
     const reply = r.data?.choices?.[0]?.message?.content?.trim() || '…';
@@ -1929,7 +2373,7 @@ async function callAzureOpenAI(chatId, userText) {
     console.log('Conversation saved to history');
     return reply;
   } catch (e) {
-    console.error('Azure OpenAI error:', e?.response?.status, e?.response?.data || e.message);
+    console.error('❌ Azure OpenAI error:', e?.response?.status, e?.response?.data || e.message);
     console.error('Full error object:', e);
     throw e;
   }
@@ -1983,6 +2427,28 @@ function setupBotHandlers(bot) {
 /* ==== Server startup and graceful shutdown ==== */
 async function startServer() {
   try {
+    console.log('🚀 Starting server initialization...');
+    
+    // Run warm-up routine before starting services
+    console.log('🔥 Running service warm-up routine...');
+    const warmUpResults = await warmUpServices();
+    
+    // Check if all services are ready
+    if (!warmUpResults.azureOpenAI || !warmUpResults.azureSearch || !warmUpResults.searchIndex) {
+      console.error('❌ Service warm-up failed. Some services are not ready:');
+      console.error('📊 Warm-up results:', warmUpResults);
+      throw new Error('Service warm-up failed - some Azure services are not accessible');
+    }
+    
+    console.log('✅ All services are ready! Adding startup delay to ensure full readiness...');
+    
+    // Add a startup delay to ensure all services are fully ready
+    const startupDelay = 5000; // 5 seconds
+    console.log(`⏳ Waiting ${startupDelay}ms for services to fully stabilize...`);
+    await new Promise(resolve => setTimeout(resolve, startupDelay));
+    
+    console.log('🚀 Services stabilized! Proceeding with bot initialization...');
+    
     await initializeBot();
     
     // Set up webhook endpoint AFTER bot is initialized (for webhook mode)
@@ -2028,6 +2494,7 @@ async function startServer() {
       console.log(`📊 Health check: http://localhost:${PORT}/health`);
       console.log(`🌍 Environment: ${NODE_ENV}`);
       console.log(`🤖 Bot mode: ${isWebhookMode ? 'Webhook' : 'Polling'}`);
+      console.log(`🔥 Services warmed up and ready for document processing`);
       if (isWebhookMode) {
         const cleanWebhookUrl = WEBHOOK_URL.endsWith('/') 
           ? `${WEBHOOK_URL}${WEBHOOK_PATH.slice(1)}` 
@@ -2036,7 +2503,7 @@ async function startServer() {
       }
     });
   } catch (error) {
-    console.error('Failed to start server:', error);
+    console.error('❌ Failed to start server:', error);
     process.exit(1);
   }
 }

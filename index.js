@@ -778,13 +778,15 @@ app.get('/', (req, res) => {
              font-weight: 600;
          }
          
-         .documents-section-separate {
-             background: #161b22;
-             border: 1px solid #30363d;
-             border-radius: 12px;
-             padding: 24px;
-             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-         }
+                 .documents-section-separate {
+            background: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 12px;
+            padding: 24px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+            max-width: 100%;
+            overflow: hidden;
+        }
          
          .documents-section-separate h4 {
              color: #e6edf3;
@@ -1150,6 +1152,9 @@ app.get('/', (req, res) => {
             padding: 16px;
             transition: all 0.2s;
             margin-bottom: 12px;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+            max-width: 100%;
         }
         
         .document-item:last-child {
@@ -1170,6 +1175,9 @@ app.get('/', (req, res) => {
             color: #e6edf3;
             margin-bottom: 8px;
             font-size: 1rem;
+            word-break: break-word;
+            hyphens: auto;
+            max-width: 100%;
         }
         
         .document-item .type {
@@ -1180,6 +1188,10 @@ app.get('/', (req, res) => {
             background: #30363d;
             display: inline-block;
             margin-bottom: 8px;
+            max-width: 100%;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
         }
         
         .document-item .upload-date,
@@ -1425,18 +1437,68 @@ app.get('/', (req, res) => {
             }
             
             .chat-interface {
-                height: auto;
-                max-height: none;
+                height: 600px;
+                max-height: 600px;
                 min-height: 600px;
+                overflow: hidden;
+                padding: 16px;
             }
             
             .features {
-                height: auto;
-                min-height: 500px;
+                height: 600px;
+                min-height: 600px;
+                max-height: 600px;
+                overflow: hidden;
+            }
+            
+            .features .feature-list {
+                overflow-y: auto;
+                max-height: calc(600px - 80px); /* Account for header and padding */
+            }
+            
+            .features .feature-list::-webkit-scrollbar {
+                width: 6px; /* Thinner scrollbar for mobile */
+            }
+            
+            .features .feature-list::-webkit-scrollbar-track {
+                background: #0d1117;
+                border-radius: 4px;
+            }
+            
+            .features .feature-list::-webkit-scrollbar-thumb {
+                background: #30363d;
+                border-radius: 4px;
+            }
+            
+            .features .feature-list::-webkit-scrollbar-thumb:hover {
+                background: #58a6ff;
             }
             
             .documents-list {
                 max-height: 300px;
+            }
+            
+            /* Mobile document text overflow fixes */
+            .document-item {
+                padding: 12px;
+                word-wrap: break-word;
+                overflow-wrap: break-word;
+            }
+            
+            .document-item .name {
+                font-size: 0.9rem;
+                word-break: break-word;
+                hyphens: auto;
+            }
+            
+            .document-item .text-preview {
+                max-width: 100%;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+                font-size: 0.8rem;
+                color: #8b949e;
+                margin-bottom: 8px;
             }
             
             .dashboard {
@@ -1456,6 +1518,10 @@ app.get('/', (req, res) => {
                 padding: 20px 16px;
             }
             
+            .documents-section-separate {
+                padding: 20px;
+            }
+            
             .file-input-wrapper {
                 max-width: 100%;
             }
@@ -1472,14 +1538,10 @@ app.get('/', (req, res) => {
                 gap: 12px;
             }
             
-            .chat-interface {
-                padding: 16px;
-            }
-            
             .chat-messages {
-                height: 500px;
-                max-height: 500px;
-                min-height: 500px;
+                height: 600px;
+                max-height: 600px;
+                min-height: 600px;
             }
             
             .chat-input-container {
@@ -1492,10 +1554,6 @@ app.get('/', (req, res) => {
             
             .container {
                 padding: 16px;
-            }
-            
-            .features {
-                position: static;
             }
             
             .upload-btn {
@@ -1512,18 +1570,37 @@ app.get('/', (req, res) => {
                 width: 6px; /* Thinner scrollbar for mobile */
             }
             
+            /* Mobile upload status text overflow fixes */
+            .upload-status {
+                padding: 12px;
+                word-wrap: break-word;
+                overflow-wrap: break-word;
+                max-width: 100%;
+            }
+            
+            .upload-status strong {
+                word-break: break-word;
+                hyphens: auto;
+                max-width: 100%;
+                display: inline-block;
+            }
+            
 
          }
          
          @media (max-width: 480px) {
-             .upload-container {
-                 padding: 16px;
-             }
-             
-             .file-input-label {
-                 min-height: 80px;
-                 padding: 16px 12px;
-             }
+                         .upload-container {
+                padding: 16px;
+            }
+            
+            .file-input-label {
+                min-height: 80px;
+                padding: 16px 12px;
+            }
+            
+            .documents-section-separate {
+                padding: 16px;
+            }
              
              .upload-text {
                  font-size: 1rem;
@@ -1554,6 +1631,73 @@ app.get('/', (req, res) => {
                 gap: 8px;
             }
             
+            /* Mobile document text overflow fixes */
+            .document-item {
+                padding: 12px;
+                word-wrap: break-word;
+                overflow-wrap: break-word;
+            }
+            
+            .document-item .name {
+                font-size: 0.9rem;
+                word-break: break-word;
+                hyphens: auto;
+            }
+            
+            .document-item .text-preview {
+                max-width: 100%;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+                font-size: 0.8rem;
+                color: #8b949e;
+                margin-bottom: 8px;
+            }
+            
+            /* Ensure consistent heights for features and chat sections on small mobile */
+            .features {
+                height: 600px;
+                min-height: 600px;
+                max-height: 600px;
+                overflow: hidden;
+            }
+            
+            .features .feature-list {
+                overflow-y: auto;
+                max-height: calc(600px - 80px); /* Account for header and padding */
+            }
+            
+            .features .feature-list::-webkit-scrollbar {
+                width: 6px; /* Thinner scrollbar for mobile */
+            }
+            
+            .features .feature-list::-webkit-scrollbar-track {
+                background: #0d1117;
+                border-radius: 4px;
+            }
+            
+            .features .feature-list::-webkit-scrollbar-thumb {
+                background: #30363d;
+                border-radius: 4px;
+            }
+            
+            .features .feature-list::-webkit-scrollbar-thumb:hover {
+                background: #58a6ff;
+            }
+            
+            .chat-interface {
+                height: 600px;
+                min-height: 600px;
+                max-height: 600px;
+                overflow: hidden;
+            }
+            
+            .chat-messages {
+                height: 600px;
+                max-height: 600px;
+                min-height: 600px;
+            }
+            
             /* Mobile scrollbar fixes */
             .chat-messages::-webkit-scrollbar {
                 width: 6px; /* Thinner scrollbar for mobile */
@@ -1561,6 +1705,21 @@ app.get('/', (req, res) => {
             
             .documents-list::-webkit-scrollbar {
                 width: 6px; /* Thinner scrollbar for mobile */
+            }
+            
+            /* Mobile upload status text overflow fixes */
+            .upload-status {
+                padding: 12px;
+                word-wrap: break-word;
+                overflow-wrap: break-word;
+                max-width: 100%;
+            }
+            
+            .upload-status strong {
+                word-break: break-word;
+                hyphens: auto;
+                max-width: 100%;
+                display: inline-block;
             }
             
 

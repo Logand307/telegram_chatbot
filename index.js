@@ -553,6 +553,7 @@ app.get('/', (req, res) => {
              flex-direction: column;
              height: 800px;
              max-height: 800px;
+             position: relative;
          }
         
         .chat-interface h3 {
@@ -571,6 +572,7 @@ app.get('/', (req, res) => {
             flex: 1;
             display: flex;
             flex-direction: column;
+            position: relative;
         }
         
                  .chat-messages {
@@ -665,6 +667,9 @@ app.get('/', (req, res) => {
             background: #0d1117;
             color: #e6edf3;
             transition: border-color 0.2s;
+            -webkit-appearance: none;
+            -moz-appearance: none;
+            appearance: none;
         }
         
         .chat-input:focus {
@@ -684,6 +689,8 @@ app.get('/', (req, res) => {
             justify-content: center;
             cursor: pointer;
             transition: background-color 0.2s;
+            -webkit-tap-highlight-color: transparent;
+            touch-action: manipulation;
         }
         
         .chat-send-btn:hover {
@@ -1407,88 +1414,106 @@ app.get('/', (req, res) => {
             opacity: 0.8;
         }
         
-                 @media (max-width: 768px) {
-             .header h1 {
-                 font-size: 2rem;
-             }
-             
-             .chat-and-features {
-                 grid-template-columns: 1fr;
-                 gap: 16px;
-             }
-             
-                           .chat-interface {
-                  height: 700px;
-                  max-height: 700px;
-              }
-              
-              .features {
-                  height: auto;
-                  min-height: 500px;
-              }
-             
-                           .documents-list {
-                  max-height: 300px;
-              }
-             
-             .dashboard {
-                 grid-template-columns: 1fr;
-             }
-             
-             .info-grid {
-                 grid-template-columns: 1fr;
-             }
-             
-             .upload-container {
-                 padding: 20px;
-             }
-             
-             .file-input-label {
-                 min-height: 100px;
-                 padding: 20px 16px;
-             }
-             
-             .file-input-wrapper {
-                 max-width: 100%;
-             }
-             
-             .service-status-bar {
-                 flex-direction: column;
-                 gap: 16px;
-                 text-align: center;
-             }
-             
-             .selected-file-info {
-                 flex-direction: column;
-                 text-align: center;
-                 gap: 12px;
-             }
-             
-             .chat-interface {
-                 padding: 16px;
-             }
-             
-                           .chat-messages {
-                  height: 600px;
-                  max-height: 600px;
-                  min-height: 600px;
-              }
-             
-             .container {
-                 padding: 16px;
-             }
-             
-             .features {
-                 position: static;
-             }
-             
-                           .upload-btn {
-                  padding: 14px 20px;
-                  font-size: 0.95rem;
-              }
-              
+                         @media (max-width: 768px) {
+            .header h1 {
+                font-size: 2rem;
+            }
+            
+            .chat-and-features {
+                grid-template-columns: 1fr;
+                gap: 16px;
+            }
+            
+            .chat-interface {
+                height: auto;
+                max-height: none;
+                min-height: 600px;
+            }
+            
+            .features {
+                height: auto;
+                min-height: 500px;
+            }
+            
+            .documents-list {
+                max-height: 300px;
+            }
+            
+            .dashboard {
+                grid-template-columns: 1fr;
+            }
+            
+            .info-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .upload-container {
+                padding: 20px;
+            }
+            
+            .file-input-label {
+                min-height: 100px;
+                padding: 20px 16px;
+            }
+            
+            .file-input-wrapper {
+                max-width: 100%;
+            }
+            
+            .service-status-bar {
+                flex-direction: column;
+                gap: 16px;
+                text-align: center;
+            }
+            
+            .selected-file-info {
+                flex-direction: column;
+                text-align: center;
+                gap: 12px;
+            }
+            
+            .chat-interface {
+                padding: 16px;
+            }
+            
+            .chat-messages {
+                height: 500px;
+                max-height: 500px;
+                min-height: 500px;
+            }
+            
+            .chat-input-container {
+                position: sticky;
+                bottom: 0;
+                background: #161b22;
+                border-top: 1px solid #30363d;
+                z-index: 10;
+            }
+            
+            .container {
+                padding: 16px;
+            }
+            
+            .features {
+                position: static;
+            }
+            
+            .upload-btn {
+                padding: 14px 20px;
+                font-size: 0.95rem;
+            }
+            
+            /* Mobile scrollbar fixes */
+            .chat-messages::-webkit-scrollbar {
+                width: 6px; /* Thinner scrollbar for mobile */
+            }
+            
+            .documents-list::-webkit-scrollbar {
+                width: 6px; /* Thinner scrollbar for mobile */
+            }
+            
 
-          }
+         }
          
          @media (max-width: 480px) {
              .upload-container {
@@ -1508,6 +1533,36 @@ app.get('/', (req, res) => {
                  font-size: 0.8rem;
              }
              
+             .chat-input-container {
+                 padding: 16px;
+             }
+             
+             .chat-input {
+                 font-size: 16px; /* Prevents zoom on iOS */
+                 padding: 14px 16px;
+             }
+             
+                         .chat-send-btn {
+                width: 44px;
+                height: 44px;
+                min-width: 44px; /* Ensures button doesn't shrink */
+                -webkit-tap-highlight-color: transparent;
+                touch-action: manipulation;
+            }
+            
+            .chat-form {
+                gap: 8px;
+            }
+            
+            /* Mobile scrollbar fixes */
+            .chat-messages::-webkit-scrollbar {
+                width: 6px; /* Thinner scrollbar for mobile */
+            }
+            
+            .documents-list::-webkit-scrollbar {
+                width: 6px; /* Thinner scrollbar for mobile */
+            }
+            
 
          }
     </style>

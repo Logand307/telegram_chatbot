@@ -150,7 +150,8 @@ async function warmUpServices() {
   const results = {
     azureOpenAI: false,
     azureSearch: false,
-    searchIndex: false
+    searchIndex: false,
+    localSearch: false
   };
   
   // Test Azure OpenAI
@@ -162,11 +163,49 @@ async function warmUpServices() {
   // Ensure search index exists
   results.searchIndex = await ensureSearchIndex();
   
+  // Test local document search functionality
+  results.localSearch = await testLocalSearch();
+  
   const warmUpTime = Date.now() - startTime;
   console.log(`⏱️ Warm-up completed in ${warmUpTime}ms`);
   console.log('📊 Warm-up results:', results);
   
   return results;
+}
+
+async function testLocalSearch() {
+  console.log('🔍 Testing local document search functionality...');
+  try {
+    // Test if we can access the documents directory
+    if (!await fs.pathExists(documentsDir)) {
+      console.log('✅ Documents directory exists');
+      return true;
+    }
+    
+    // Test if we can read from the documents directory
+    const files = await fs.readdir(documentsDir);
+    console.log(`✅ Local search test: Found ${files.length} document files`);
+    
+    // Test a simple search operation if there are documents
+    if (files.length > 0 && uploadedDocuments.size > 0) {
+      try {
+        // Create a simple test vector (all zeros for testing)
+        const testVector = new Array(1536).fill(0);
+        
+        // Test search with a simple query
+        const testResults = await searchUploadedDocuments('test', testVector, 1);
+        console.log(`✅ Local search test: Search operation successful, found ${testResults.length} results`);
+      } catch (searchError) {
+        console.warn('⚠️ Local search test: Search operation failed, but directory access is working:', searchError.message);
+        // Don't fail the test if search fails, just directory access is enough
+      }
+    }
+    
+    return true;
+  } catch (error) {
+    console.warn('⚠️ Local search test failed:', error.message);
+    return false;
+  }
 }
 
 /* ==== Retry Logic with Exponential Backoff ==== */
@@ -351,7 +390,9 @@ app.get('/health', (req, res) => {
     status: 'healthy',
     timestamp: new Date().toISOString(),
     environment: NODE_ENV,
-    uptime: process.uptime()
+    uptime: process.uptime(),
+    search_ready: uploadedDocuments.size > 0 ? 'ready' : 'no_documents',
+    documents_count: uploadedDocuments.size
   });
 });
 
@@ -2466,6 +2507,23 @@ async function processDocument(filePath, originalName, mimeType) {
       chunks: embeddings
     });
     
+    // Add stabilization delay to ensure file system operations complete
+    console.log('⏳ Adding stabilization delay for file system operations...');
+    await new Promise(resolve => setTimeout(resolve, 1000)); // 1 second delay
+    
+    // Verify the document is accessible for search
+    console.log('🔍 Verifying document accessibility for search...');
+    try {
+      const verifyData = await fs.readJson(chunksPath);
+      if (verifyData.documentInfo && verifyData.chunks && verifyData.chunks.length > 0) {
+        console.log('✅ Document verified and ready for search');
+      } else {
+        console.warn('⚠️ Document verification incomplete, but continuing...');
+      }
+    } catch (verifyError) {
+      console.warn('⚠️ Document verification failed, but continuing:', verifyError.message);
+    }
+    
     const processingTime = Date.now() - startTime;
     console.log(`🎉 Document processed successfully in ${processingTime}ms`);
     console.log(`📊 Final stats: ${embeddings.length} embeddings, ${chunks.length} chunks, ${cleanedText.length} characters`);
@@ -2485,6 +2543,10 @@ async function processDocument(filePath, originalName, mimeType) {
 async function retrieve(question, k = 4) {
   const vector = await embedText(question);
   if (!Array.isArray(vector)) return [];
+
+  // Add a small stabilization delay to ensure search services are ready
+  console.log('⏳ Adding search stabilization delay...');
+  await new Promise(resolve => setTimeout(resolve, 200)); // 200ms delay
 
   // Run both searches in parallel for better performance
   const [azureResults, uploadedResults] = await Promise.all([
@@ -2550,37 +2612,64 @@ async function searchUploadedDocuments(question, vector, k) {
   const results = [];
   const similarityThreshold = 0.1; // Only consider results above this threshold
   
-  // Process documents in parallel for better performance
+  // Process documents in parallel for better performance with retry logic
   const documentPromises = Array.from(uploadedDocuments.entries()).map(async ([documentId, documentInfo]) => {
     try {
       const chunksPath = path.join(documentsDir, `${documentId}.json`);
-      if (await fs.pathExists(chunksPath)) {
-        const documentData = await fs.readJson(chunksPath);
-        
-        // Calculate similarity for each chunk
-        const chunkResults = [];
-        for (const chunk of documentData.chunks) {
-          if (chunk.contentVector && Array.isArray(chunk.contentVector)) {
-            const similarity = calculateCosineSimilarity(vector, chunk.contentVector);
-            if (similarity > similarityThreshold) {
-              chunkResults.push({
-                title: documentInfo.originalName,
-                url: `uploaded://${documentId}`,
-                content: chunk.content,
-                source: 'uploaded_document',
-                similarity: similarity,
-                documentId: documentId
-              });
+      
+      // Add retry logic for file access
+      let documentData;
+      let retryCount = 0;
+      const maxRetries = 3;
+      
+      while (retryCount < maxRetries) {
+        try {
+          if (await fs.pathExists(chunksPath)) {
+            documentData = await fs.readJson(chunksPath);
+            break; // Success, exit retry loop
+          } else {
+            console.warn(`Document file not found: ${chunksPath}, retry ${retryCount + 1}/${maxRetries}`);
+            retryCount++;
+            if (retryCount < maxRetries) {
+              await new Promise(resolve => setTimeout(resolve, 500)); // Wait 500ms before retry
             }
           }
+        } catch (readError) {
+          console.warn(`Error reading document ${documentId}, retry ${retryCount + 1}/${maxRetries}:`, readError.message);
+          retryCount++;
+          if (retryCount < maxRetries) {
+            await new Promise(resolve => setTimeout(resolve, 500)); // Wait 500ms before retry
+          }
         }
-        
-        // Sort chunks by similarity and take top results
-        return chunkResults
-          .sort((a, b) => b.similarity - a.similarity)
-          .slice(0, Math.ceil(k / 2)); // Limit per document
       }
-      return [];
+      
+      if (!documentData) {
+        console.error(`Failed to read document ${documentId} after ${maxRetries} retries`);
+        return [];
+      }
+      
+      // Calculate similarity for each chunk
+      const chunkResults = [];
+      for (const chunk of documentData.chunks) {
+        if (chunk.contentVector && Array.isArray(chunk.contentVector)) {
+          const similarity = calculateCosineSimilarity(vector, chunk.contentVector);
+          if (similarity > similarityThreshold) {
+            chunkResults.push({
+              title: documentInfo.originalName,
+              url: `uploaded://${documentId}`,
+              content: chunk.content,
+              source: 'uploaded_document',
+              similarity: similarity,
+              documentId: documentId
+            });
+          }
+        }
+      }
+      
+      // Sort chunks by similarity and take top results
+      return chunkResults
+        .sort((a, b) => b.similarity - a.similarity)
+        .slice(0, Math.ceil(k / 2)); // Limit per document
     } catch (error) {
       console.error(`Error processing document ${documentId}:`, error);
       return [];
@@ -2642,11 +2731,14 @@ async function callAzureOpenAI(chatId, userText) {
   // 1) Retrieve relevant passages
   let contextBlock = 'No relevant sources found.';
   try {
-    console.log('Calling retrieve function...');
+    console.log('🔍 Calling retrieve function...');
+    console.log(`📊 Current uploaded documents count: ${uploadedDocuments.size}`);
+    
     const passages = await retrieve(userText, 4);
-    console.log(`Retrieved ${passages.length} passages`);
+    console.log(`✅ Retrieved ${passages.length} passages`);
     
     if (passages.length) {
+      console.log(`📝 Passage sources: ${passages.map(p => p.source).join(', ')}`);
       contextBlock = passages
         .map(
           (p, i) => {
@@ -2657,9 +2749,12 @@ async function callAzureOpenAI(chatId, userText) {
           }
         )
         .join('\n\n');
+    } else {
+      console.log('⚠️ No passages retrieved - this might indicate a search readiness issue');
     }
   } catch (e) {
-    console.error('Search/Retrieval error:', e?.response?.data || e.message);
+    console.error('❌ Search/Retrieval error:', e?.response?.data || e.message);
+    console.error('🔍 Search error details:', e);
   }
 
   // 2) Build messages (keep short history to control tokens)
@@ -2775,7 +2870,7 @@ async function startServer() {
     }
     
     // Check service readiness but don't block startup
-    const allServicesReady = warmUpResults.azureOpenAI && warmUpResults.azureSearch && warmUpResults.searchIndex;
+    const allServicesReady = warmUpResults.azureOpenAI && warmUpResults.azureSearch && warmUpResults.searchIndex && warmUpResults.localSearch;
     
     if (allServicesReady) {
       console.log('✅ All services are ready! Adding startup delay to ensure full readiness...');

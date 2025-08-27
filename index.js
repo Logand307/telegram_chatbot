@@ -38,7 +38,19 @@ async function testAzureOpenAI() {
       return false;
     }
   } catch (error) {
-    console.error('❌ Azure OpenAI embeddings test failed:', error.message);
+    // Handle specific network errors more gracefully
+    if (error.code === 'ENOTFOUND' || error.code === 'ENETUNREACH') {
+      console.warn('⚠️ Azure OpenAI network error (DNS/connectivity issue):', error.message);
+      console.warn('💡 This may be a temporary network issue or incorrect URL configuration');
+    } else if (error.code === 'ECONNREFUSED') {
+      console.warn('⚠️ Azure OpenAI connection refused - service may be down or URL incorrect');
+    } else if (error.response?.status === 401) {
+      console.warn('⚠️ Azure OpenAI authentication failed - check API key');
+    } else if (error.response?.status === 404) {
+      console.warn('⚠️ Azure OpenAI endpoint not found - check URL configuration');
+    } else {
+      console.error('❌ Azure OpenAI embeddings test failed:', error.message);
+    }
     return false;
   }
 }
@@ -53,12 +65,26 @@ async function testAzureSearch() {
       new AzureKeyCredential(AZURE_SEARCH_API_KEY)
     );
     
-    // Test basic search operation
-    const results = await searchClient.search('test', { top: 1 });
+    // Test basic search operation with timeout
+    const results = await Promise.race([
+      searchClient.search('test', { top: 1 }),
+      new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Azure Search timeout')), 15000)
+      )
+    ]);
+    
     console.log('✅ Azure Search: OK');
     return true;
   } catch (error) {
-    console.error('❌ Azure Search test failed:', error.message);
+    // Handle specific network errors more gracefully
+    if (error.code === 'ENOTFOUND' || error.code === 'ENETUNREACH') {
+      console.warn('⚠️ Azure Search network error (DNS/connectivity issue):', error.message);
+      console.warn('💡 This may be a temporary network issue or incorrect endpoint configuration');
+    } else if (error.message.includes('timeout')) {
+      console.warn('⚠️ Azure Search timeout - service may be slow to respond');
+    } else {
+      console.error('❌ Azure Search test failed:', error.message);
+    }
     return false;
   }
 }
@@ -287,6 +313,30 @@ function manageCache() {
 // Clean cache every 5 minutes
 setInterval(manageCache, 5 * 60 * 1000);
 
+// Periodic health check for failed services (every 2 minutes)
+let healthCheckInterval;
+function startHealthCheck() {
+  healthCheckInterval = setInterval(async () => {
+    try {
+      const results = await warmUpServices();
+      const allReady = results.azureOpenAI && results.azureSearch && results.searchIndex;
+      
+      if (allReady) {
+        console.log('✅ All services are now healthy!');
+        // Stop health checks if all services are ready
+        if (healthCheckInterval) {
+          clearInterval(healthCheckInterval);
+          healthCheckInterval = null;
+        }
+      } else {
+        console.log('⚠️ Some services still unhealthy:', results);
+      }
+    } catch (error) {
+      console.warn('⚠️ Health check failed:', error.message);
+    }
+  }, 2 * 60 * 1000); // Check every 2 minutes
+}
+
 /* ==== Express app setup ==== */
 const app = express();
 const server = createServer(app);
@@ -452,16 +502,17 @@ app.get('/', (req, res) => {
             color: #8b949e;
         }
         
-        .chat-interface {
-            background: #161b22;
-            border: 1px solid #30363d;
-            border-radius: 12px;
-            padding: 24px;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-            display: flex;
-            flex-direction: column;
-            min-height: 600px;
-        }
+                 .chat-interface {
+             background: #161b22;
+             border: 1px solid #30363d;
+             border-radius: 12px;
+             padding: 24px;
+             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+             display: flex;
+             flex-direction: column;
+             height: 800px;
+             max-height: 800px;
+         }
         
         .chat-interface h3 {
             color: #58a6ff;
@@ -481,12 +532,32 @@ app.get('/', (req, res) => {
             flex-direction: column;
         }
         
-        .chat-messages {
-            flex: 1;
-            overflow-y: auto;
-            padding: 20px;
-            background: #0d1117;
-        }
+                 .chat-messages {
+             flex: 1;
+             overflow-y: auto;
+             padding: 20px;
+             background: #0d1117;
+             max-height: 700px;
+             height: 700px;
+         }
+         
+         .chat-messages::-webkit-scrollbar {
+             width: 8px;
+         }
+         
+         .chat-messages::-webkit-scrollbar-track {
+             background: #0d1117;
+             border-radius: 4px;
+         }
+         
+         .chat-messages::-webkit-scrollbar-thumb {
+             background: #30363d;
+             border-radius: 4px;
+         }
+         
+         .chat-messages::-webkit-scrollbar-thumb:hover {
+             background: #58a6ff;
+         }
         
         .message {
             margin-bottom: 16px;
@@ -648,134 +719,276 @@ app.get('/', (req, res) => {
             font-weight: 600;
         }
         
-        .documents-layout {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 24px;
-        }
+                 .upload-section {
+             margin-bottom: 30px;
+         }
+         
+         .upload-section h4 {
+             color: #e6edf3;
+             margin-bottom: 16px;
+             font-size: 1.1rem;
+             font-weight: 600;
+         }
+         
+         .documents-section-separate {
+             background: #161b22;
+             border: 1px solid #30363d;
+             border-radius: 12px;
+             padding: 24px;
+             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+         }
+         
+         .documents-section-separate h4 {
+             color: #e6edf3;
+             margin-bottom: 16px;
+             font-size: 1.1rem;
+             font-weight: 600;
+         }
+         
+         .documents-header {
+             display: flex;
+             justify-content: space-between;
+             align-items: center;
+             margin-bottom: 16px;
+             padding: 12px 16px;
+             background: #0d1117;
+             border: 1px solid #30363d;
+             border-radius: 8px;
+         }
+         
+         .documents-count {
+             color: #8b949e;
+             font-size: 0.9rem;
+             font-weight: 500;
+         }
+         
+         .refresh-btn {
+             background: #30363d;
+             color: #e6edf3;
+             border: 1px solid #58a6ff;
+             border-radius: 6px;
+             width: 32px;
+             height: 32px;
+             display: flex;
+             align-items: center;
+             justify-content: center;
+             cursor: pointer;
+             transition: all 0.2s ease;
+         }
+         
+         .refresh-btn:hover {
+             background: #58a6ff;
+             color: white;
+             transform: scale(1.1);
+         }
         
-        .upload-side h4,
-        .documents-side h4 {
-            color: #e6edf3;
-            margin-bottom: 12px;
-            font-size: 1.1rem;
-            font-weight: 600;
-        }
+                 .upload-section p {
+             margin-bottom: 20px;
+             color: #8b949e;
+             font-size: 0.9rem;
+             line-height: 1.5;
+         }
         
-        .upload-side p {
-            margin-bottom: 20px;
-            color: #8b949e;
-            font-size: 0.9rem;
-            line-height: 1.5;
-        }
+
+         
+         .upload-container {
+             background: #0d1117;
+             border: 2px dashed #30363d;
+             border-radius: 12px;
+             padding: 24px;
+             text-align: center;
+             margin-bottom: 20px;
+             transition: all 0.3s ease;
+             position: relative;
+             overflow: hidden;
+         }
+         
+         .upload-container:hover {
+             border-color: #58a6ff;
+             box-shadow: 0 4px 16px rgba(88, 166, 255, 0.1);
+         }
+         
+         .upload-container.drag-over {
+             border-color: #238636;
+             background: #0c532a;
+             transform: scale(1.02);
+         }
+         
+         .upload-form {
+             display: flex;
+             flex-direction: column;
+             align-items: center;
+             gap: 20px;
+         }
+         
+         .file-input-wrapper {
+             position: relative;
+             width: 100%;
+             max-width: 100%;
+         }
+         
+                   .file-input {
+              position: absolute;
+              top: 0;
+              left: 0;
+              width: 100%;
+              height: 100%;
+              opacity: 0;
+              cursor: pointer;
+              z-index: 1;
+          }
+         
+                   .file-input-label {
+              display: flex;
+              flex-direction: column;
+              align-items: center;
+              gap: 12px;
+              padding: 24px 20px;
+              background: #21262d;
+              border: 2px dashed #30363d;
+              border-radius: 12px;
+              color: #58a6ff;
+              cursor: pointer;
+              transition: all 0.3s ease;
+              min-height: 120px;
+              justify-content: center;
+              width: 100%;
+              position: relative;
+              z-index: 5;
+          }
+         
+         .file-input-label:hover {
+             background: #30363d;
+             border-color: #58a6ff;
+             transform: translateY(-2px);
+         }
+         
+         .file-input-label svg {
+             width: 40px;
+             height: 40px;
+             color: #58a6ff;
+             transition: all 0.3s ease;
+         }
+         
+         .file-input-label:hover svg {
+             transform: scale(1.1);
+         }
+         
+         .upload-text {
+             font-size: 1.1rem;
+             font-weight: 600;
+             color: #58a6ff;
+         }
+         
+         .upload-hint {
+             font-size: 0.9rem;
+             color: #8b949e;
+             opacity: 0.8;
+         }
+         
+                   .selected-file-info {
+              display: flex;
+              align-items: center;
+              gap: 16px;
+              background: #0c532a;
+              border: 1px solid #238636;
+              border-radius: 8px;
+              padding: 16px 20px;
+              margin-top: 16px;
+              width: 100%;
+              max-width: 400px;
+              position: relative;
+              z-index: 15;
+          }
+         
+         .file-icon {
+             font-size: 2rem;
+             flex-shrink: 0;
+         }
+         
+         .file-details {
+             flex: 1;
+             min-width: 0;
+         }
+         
+         .file-name {
+             font-weight: 600;
+             color: #e6edf3;
+             margin-bottom: 4px;
+             word-break: break-all;
+         }
+         
+         .file-size {
+             font-size: 0.85rem;
+             color: #8b949e;
+         }
+         
+                   .remove-file-btn {
+              background: #da3633;
+              color: white;
+              border: none;
+              border-radius: 6px;
+              width: 32px;
+              height: 32px;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              cursor: pointer;
+              transition: all 0.2s ease;
+              flex-shrink: 0;
+              position: relative;
+              z-index: 20;
+          }
+         
+         .remove-file-btn:hover {
+             background: #f85149;
+             transform: scale(1.1);
+         }
         
-        .documents-section p {
-            margin-bottom: 32px;
-            color: #8b949e;
-            font-size: 1rem;
-            line-height: 1.6;
-            text-align: center;
-        }
-        
-        .upload-container {
-            background: #0d1117;
-            border: 2px dashed #30363d;
-            border-radius: 12px;
-            padding: 20px;
-            text-align: center;
-            margin-bottom: 20px;
-            transition: border-color 0.2s;
-        }
-        
-        .upload-container:hover {
-            border-color: #58a6ff;
-        }
-        
-        .upload-form {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            gap: 16px;
-        }
-        
-        .file-input-wrapper {
-            position: relative;
-            width: 100%;
-            max-width: 100%;
-        }
-        
-        .file-input {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            opacity: 0;
-            cursor: pointer;
-        }
-        
-        .file-input-label {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            gap: 8px;
-            padding: 16px 20px;
-            background: #21262d;
-            border: 1px solid #30363d;
-            border-radius: 8px;
-            color: #58a6ff;
-            cursor: pointer;
-            transition: all 0.2s;
-            min-height: 80px;
-            justify-content: center;
-            width: 100%;
-        }
-        
-        .file-input-label:hover {
-            background: #30363d;
-            border-color: #58a6ff;
-        }
-        
-        .file-input-label svg {
-            width: 32px;
-            height: 32px;
-            color: #58a6ff;
-        }
-        
-        .selected-file-name {
-            font-size: 0.9rem;
-            color: #8b949e;
-            margin-top: 4px;
-            word-break: break-all;
-            max-width: 100%;
-        }
-        
-        .upload-btn {
-            background: #1f6feb;
-            color: white;
-            border: none;
-            border-radius: 8px;
-            padding: 16px 20px;
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            transition: background-color 0.2s;
-            font-size: 0.95rem;
-            font-weight: 500;
-            width: 100%;
-            justify-content: center;
-        }
-        
-        .upload-btn:hover {
-            background: #1f6feb;
-            opacity: 0.9;
-        }
-        
-        .upload-btn:disabled {
-            background: #30363d;
-            cursor: not-allowed;
-        }
+                 .upload-btn {
+             background: #1f6feb;
+             color: white;
+             border: none;
+             border-radius: 8px;
+             padding: 16px 24px;
+             cursor: pointer;
+             display: flex;
+             align-items: center;
+             gap: 12px;
+             transition: all 0.3s ease;
+             font-size: 1rem;
+             font-weight: 600;
+             width: 100%;
+             justify-content: center;
+             position: relative;
+             overflow: hidden;
+         }
+         
+         .upload-btn:hover {
+             background: #1f6feb;
+             opacity: 0.9;
+             transform: translateY(-2px);
+             box-shadow: 0 4px 12px rgba(31, 111, 235, 0.3);
+         }
+         
+         .upload-btn:active {
+             transform: translateY(0);
+         }
+         
+         .upload-btn:disabled {
+             background: #30363d;
+             cursor: not-allowed;
+             transform: none;
+             box-shadow: none;
+         }
+         
+         .upload-btn-text {
+             transition: all 0.3s ease;
+         }
+         
+         .upload-btn:disabled .upload-btn-text {
+             opacity: 0.6;
+         }
         
         .upload-status {
             margin-top: 20px;
@@ -1081,89 +1294,131 @@ app.get('/', (req, res) => {
             font-size: 0.9rem;
         }
         
-        .tech-desc {
-            color: #8b949e;
-            font-size: 0.8rem;
-        }
-        
-        .footer {
+                 .tech-desc {
+             color: #8b949e;
+             font-size: 0.8rem;
+         }
+         
+
+         
+         .footer {
             text-align: center;
             margin-top: 40px;
             color: #8b949e;
             opacity: 0.8;
         }
         
-        @media (max-width: 768px) {
-            .header h1 {
-                font-size: 2rem;
-            }
-            
-            .chat-and-features {
-                grid-template-columns: 1fr;
-                gap: 16px;
-            }
-            
-            .chat-interface,
-            .features {
-                height: auto;
-                min-height: 500px;
-            }
-            
-            .documents-layout {
-                grid-template-columns: 1fr;
-                gap: 20px;
-            }
-            
-            .documents-list {
-                max-height: 300px;
-            }
-            
-            .dashboard {
-                grid-template-columns: 1fr;
-            }
-            
-            .info-grid {
-                grid-template-columns: 1fr;
-            }
-            
-            .upload-container {
-                padding: 20px;
-            }
-            
-            .file-input-label {
-                min-height: 70px;
-                padding: 14px 16px;
-            }
-            
-            .file-input-wrapper {
-                max-width: 280px;
-            }
-            
-            .chat-interface {
-                padding: 16px;
-            }
-            
-            .chat-messages {
-                height: auto;
-                min-height: 300px;
-            }
-            
-            .container {
-                padding: 16px;
-            }
-            
-            .features {
-                position: static;
-            }
-        }
+                 @media (max-width: 768px) {
+             .header h1 {
+                 font-size: 2rem;
+             }
+             
+             .chat-and-features {
+                 grid-template-columns: 1fr;
+                 gap: 16px;
+             }
+             
+                           .chat-interface {
+                  height: 700px;
+                  max-height: 700px;
+              }
+              
+              .features {
+                  height: auto;
+                  min-height: 500px;
+              }
+             
+                           .documents-list {
+                  max-height: 300px;
+              }
+             
+             .dashboard {
+                 grid-template-columns: 1fr;
+             }
+             
+             .info-grid {
+                 grid-template-columns: 1fr;
+             }
+             
+             .upload-container {
+                 padding: 20px;
+             }
+             
+             .file-input-label {
+                 min-height: 100px;
+                 padding: 20px 16px;
+             }
+             
+             .file-input-wrapper {
+                 max-width: 100%;
+             }
+             
+             .service-status-bar {
+                 flex-direction: column;
+                 gap: 16px;
+                 text-align: center;
+             }
+             
+             .selected-file-info {
+                 flex-direction: column;
+                 text-align: center;
+                 gap: 12px;
+             }
+             
+             .chat-interface {
+                 padding: 16px;
+             }
+             
+                           .chat-messages {
+                  height: 600px;
+                  max-height: 600px;
+                  min-height: 600px;
+              }
+             
+             .container {
+                 padding: 16px;
+             }
+             
+             .features {
+                 position: static;
+             }
+             
+                           .upload-btn {
+                  padding: 14px 20px;
+                  font-size: 0.95rem;
+              }
+              
+
+          }
+         
+         @media (max-width: 480px) {
+             .upload-container {
+                 padding: 16px;
+             }
+             
+             .file-input-label {
+                 min-height: 80px;
+                 padding: 16px 12px;
+             }
+             
+             .upload-text {
+                 font-size: 1rem;
+             }
+             
+             .upload-hint {
+                 font-size: 0.8rem;
+             }
+             
+
+         }
     </style>
 </head>
 <body>
     <div class="container">
-        <div class="header">
-            <h1>RecallAI</h1>
-            <p>Intelligent answers, powered by GPT-4 and retrieval-augmented search.</p>
-        </div>
+                    <div class="header">
+                <h1>RecallAI</h1>
+                <p>Intelligent answers, powered by GPT-4 and retrieval-augmented generation.</p>
+            </div>
         
         <div class="chat-and-features">
             <div class="chat-interface">
@@ -1172,7 +1427,7 @@ app.get('/', (req, res) => {
                     <div class="chat-messages" id="chatMessages">
                         <div class="message bot-message">
                             <div class="message-content">
-                                <div class="message-text">Hi! I’m your AI assistant. Ask me anything, and I’ll combine reasoning with retrieval from my knowledge base. You can even upload your documents to expand what I know.</div>
+                                <div class="message-text">Hi! I'm your AI assistant. Ask me anything, and I'll combine reasoning with retrieval from my knowledge base. You can even upload your documents to expand what I know.</div>
                                 <div class="message-timestamp">Just now</div>
                             </div>
                         </div>
@@ -1228,16 +1483,18 @@ app.get('/', (req, res) => {
                             <div class="feature-description">Context across sessions</div>
                         </div>
                     </li>
-                    <li>
-                        <span class="feature-icon">⚡</span>
-                        <div class="feature-content">
-                            <div class="feature-title">Performance Optimized</div>
-                            <div class="feature-description">Parallel processing & caching</div>
-                        </div>
-                    </li>
-                </ul>
-                
-                <div class="tech-stack">
+                                                               <li>
+                          <span class="feature-icon">⚡</span>
+                          <div class="feature-content">
+                              <div class="feature-title">Performance Optimized</div>
+                              <div class="feature-description">Parallel processing & caching</div>
+                          </div>
+                      </li>
+                 </ul>
+                 
+
+                 
+                 <div class="tech-stack">
                     <h4>🛠️ Built With</h4>
                     <div class="tech-grid">
                         <div class="tech-item">
@@ -1259,12 +1516,14 @@ app.get('/', (req, res) => {
         
         <div class="documents-section">
             <h3>📄 Document Management</h3>
-            <div class="documents-layout">
-                <div class="upload-side">
-                    <h4>Upload New Documents</h4>
+            
+
+            
+            <div class="upload-section">
+                    <h4>📤 Upload New Documents</h4>
                     <p>Upload PDF or Word documents to enhance your bot's knowledge base</p>
                     
-                    <div class="upload-container">
+                    <div class="upload-container" id="uploadContainer">
                         <form id="uploadForm" class="upload-form">
                             <div class="file-input-wrapper">
                                 <input 
@@ -1273,36 +1532,57 @@ app.get('/', (req, res) => {
                                     accept=".pdf,.doc,.docx"
                                     class="file-input"
                                 >
-                                <label for="documentInput" class="file-input-label">
-                                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <label for="documentInput" class="file-input-label" id="fileInputLabel">
+                                    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                                         <path d="M14 2H6C5.46957 2 4.96086 2.21071 4.58579 2.58579C4.21071 2.96086 4 3.46957 4 4V20C4 20.5304 4.21071 21.0391 4.58579 21.4142C4.96086 21.7893 5.46957 22 6 22H18C18.5304 22 19.0391 21.7893 19.4142 21.4142C19.7893 21.0391 20 20.5304 20 20V8L14 2Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
                                         <path d="M14 2V8H20" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
                                         <path d="M16 13H8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
                                         <path d="M16 17H8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
                                         <path d="M10 9H8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
                                     </svg>
-                                    Choose File
+                                    <span class="upload-text">Choose File</span>
+                                    <span class="upload-hint">or drag and drop here</span>
                                 </label>
-                                <span id="selectedFileName" class="selected-file-name"></span>
+                                <div class="selected-file-info" id="selectedFileInfo" style="display: none;">
+                                    <div class="file-icon">📄</div>
+                                    <div class="file-details">
+                                        <div class="file-name" id="selectedFileName"></div>
+                                        <div class="file-size" id="selectedFileSize"></div>
+                                    </div>
+                                    <button type="button" class="remove-file-btn" onclick="removeSelectedFile(event)" title="Remove file">
+                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                            <path d="M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                            <path d="M6 6L18 18" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                        </svg>
+                                    </button>
+                                </div>
                             </div>
+                            
                             <button type="submit" class="upload-btn" id="uploadBtn" disabled>
-                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M21 15V19C21 19.5304 20.7893 20.0391 20.4142 20.4142C20.0391 20.7893 19.5304 21 19 21H5C4.46957 21 3.96086 20.7893 3.58579 20.4142C3.21071 20.0391 3 19.5304 3 19V15" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M7 10L12 15L17 10" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 15V3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg> Upload Document
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                    <path d="M21 15V19C21 19.5304 20.7893 20.0391 20.4142 20.4142C20.0391 20.7893 19.5304 21 19 21H5C4.46957 21 3.96086 20.7893 3.58579 20.4142C3.21071 20.0391 3 19.5304 3 19V15" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                    <path d="M7 10L12 15L17 10" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                    <path d="M12 15V3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                </svg>
+                                <span class="upload-btn-text">Upload Document</span>
                             </button>
                         </form>
                     </div>
                     
-                                         <div class="upload-status" id="uploadStatus">
-                         <div style="color: #8b949e;">⏳ Checking service readiness...</div>
-                     </div>
-                     <div style="margin-top: 16px; text-align: center;">
-                         <button onclick="checkServiceReadiness()" style="background: #30363d; color: #e6edf3; border: 1px solid #58a6ff; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 0.9rem;">
-                             🔄 Check Services
-                         </button>
-                     </div>
-                </div>
-                
-                <div class="documents-side">
-                    <h4>Your Documents</h4>
+                    <div class="upload-status" id="uploadStatus"></div>
+            </div>
+            
+            <div class="documents-section-separate">
+                    <h4>📚 Your Documents</h4>
+                    <div class="documents-header">
+                        <span class="documents-count" id="documentsCount">0 documents</span>
+                        <button class="refresh-btn" onclick="loadDocuments()" title="Refresh documents">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <path d="M1 4V10H7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                <path d="M3.51 15A9 9 0 1 0 6 5L1 10" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                            </svg>
+                        </button>
+                    </div>
                     <div id="documentsList" class="documents-list">
                         <div class="loading">Loading documents...</div>
                     </div>
@@ -1341,8 +1621,9 @@ app.get('/', (req, res) => {
              // Load documents
              loadDocuments();
              
-             // Check service readiness on page load
-             checkServiceReadiness();
+
+             
+
          });
         
         function setupChat() {
@@ -1450,193 +1731,246 @@ app.get('/', (req, res) => {
             return hours.toString().padStart(2, '0') + ':' + minutes.toString().padStart(2, '0') + ':' + secs.toString().padStart(2, '0');
         }
 
-                 // Global state for service readiness
-         let isServicesReady = false;
-         let isWarmupInProgress = false;
+                          // Global state for service readiness
+
          
-         async function checkServiceReadiness() {
-             if (isWarmupInProgress) return;
-             
-             isWarmupInProgress = true;
-             const uploadStatus = document.getElementById('uploadStatus');
-             const uploadBtn = document.getElementById('uploadBtn');
+
+
+         
+                   function setupFileUpload() {
+              const uploadForm = document.getElementById('uploadForm');
+              const documentInput = document.getElementById('documentInput');
+              const uploadBtn = document.getElementById('uploadBtn');
+              const selectedFileName = document.getElementById('selectedFileName');
+              const selectedFileSize = document.getElementById('selectedFileSize');
+              const selectedFileInfo = document.getElementById('selectedFileInfo');
+              const fileInputLabel = document.getElementById('fileInputLabel');
+              const uploadContainer = document.getElementById('uploadContainer');
+              const uploadStatus = document.getElementById('uploadStatus');
+              
+              // Handle file selection
+              documentInput.addEventListener('change', function(e) {
+                  const file = e.target.files[0];
+                  if (file) {
+                      selectedFileName.textContent = file.name;
+                      selectedFileSize.textContent = formatFileSize(file.size);
+                      selectedFileInfo.style.display = 'flex';
+                      fileInputLabel.style.display = 'none';
+                      
+                      // Enable button when file is selected
+                      uploadBtn.disabled = false;
+                      uploadStatus.innerHTML = '';
+                  } else {
+                      selectedFileName.textContent = '';
+                      selectedFileSize.textContent = '';
+                      selectedFileInfo.style.display = 'none';
+                      fileInputLabel.style.display = 'flex';
+                      uploadBtn.disabled = true;
+                  }
+              });
+              
+              // Drag and drop functionality
+              uploadContainer.addEventListener('dragover', function(e) {
+                  e.preventDefault();
+                  uploadContainer.classList.add('drag-over');
+              });
+              
+              uploadContainer.addEventListener('dragleave', function(e) {
+                  e.preventDefault();
+                  uploadContainer.classList.remove('drag-over');
+              });
+              
+              uploadContainer.addEventListener('drop', function(e) {
+                  e.preventDefault();
+                  uploadContainer.classList.remove('drag-over');
+                  
+                  const files = e.dataTransfer.files;
+                  if (files.length > 0) {
+                      const file = files[0];
+                      if (isValidFileType(file)) {
+                          documentInput.files = files;
+                          documentInput.dispatchEvent(new Event('change'));
+                      } else {
+                          uploadStatus.innerHTML = '<div style="color: #f85149;">❌ Invalid file type. Please select a PDF or Word document.</div>';
+                          uploadStatus.className = 'upload-status error';
+                      }
+                  }
+              });
+              
+              // File type validation
+              function isValidFileType(file) {
+                  const allowedTypes = [
+                      'application/pdf',
+                      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                      'application/msword'
+                  ];
+                  return allowedTypes.includes(file.type);
+              }
+              
+              // File size formatting
+              function formatFileSize(bytes) {
+                  if (bytes === 0) return '0 Bytes';
+                  const k = 1024;
+                  const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+                  const i = Math.floor(Math.log(bytes) / Math.log(k));
+                  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+              }
+            
+                                                   // Handle form submission
+                          uploadForm.addEventListener('submit', async function(e) {
+                              e.preventDefault();
+                              
+                              const file = documentInput.files[0];
+                              if (!file) return;
+                              
+
+                              
+                              // Show uploading status
+                              uploadBtn.disabled = true;
+                              uploadBtn.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 2V6M12 18V22M4.93 4.93L7.76 7.76M16.24 16.24L19.07 19.07M2 12H6M18 12H22M4.93 19.07L7.76 16.24M16.24 7.76L19.07 4.93" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="upload-btn-text">Processing...</span>';
+                              
+                              const formData = new FormData();
+                              formData.append('document', file);
+                              
+                              try {
+                                  const response = await fetch('/upload', {
+                                      method: 'POST',
+                                      body: formData
+                                  });
+                                  
+                                  const data = await response.json();
+                                  
+                                  if (data.success) {
+                                      uploadStatus.innerHTML = '✅ ' + data.message + '<br><strong>' + data.document.originalName + '</strong> processed successfully!<br>Text length: ' + data.document.textLength + ' characters, ' + data.document.chunks + ' chunks created.';
+                                      uploadStatus.className = 'upload-status success';
+                                      
+                                      // Reset form
+                                      uploadForm.reset();
+                                      selectedFileInfo.style.display = 'none';
+                                      fileInputLabel.style.display = 'flex';
+                                      uploadBtn.disabled = true;
+                                      
+                                      // Reload documents list
+                                      loadDocuments();
+                                  } else {
+                                      throw new Error(data.error || 'Upload failed');
+                                  }
+                              } catch (error) {
+                                  console.error('Upload error:', error);
+                                  uploadStatus.innerHTML = '❌ Upload failed: ' + error.message;
+                                  uploadStatus.className = 'upload-status error';
+                              } finally {
+                                  // Re-enable button based on current state
+                                  if (documentInput.files[0]) {
+                                      uploadBtn.disabled = false;
+                                  }
+                                  uploadBtn.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M21 15V19C21 19.5304 20.7893 20.0391 20.4142 20.4142C20.0391 20.7893 19.5304 21 19 21H5C4.46957 21 3.96086 20.7893 3.58579 20.4142C3.21071 20.0391 3 19.5304 3 19V15" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M7 10L12 15L17 10" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 15V3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="upload-btn-text">Upload Document</span>';
+                              }
+                          });
+        }
+        
+                 async function loadDocuments() {
+             const documentsList = document.getElementById('documentsList');
+             const documentsCount = document.getElementById('documentsCount');
              
              try {
-                 uploadStatus.innerHTML = '<div style="color: #58a6ff;">🔄 Checking service readiness...</div>';
-                 uploadStatus.className = 'upload-status';
-                 
-                 const response = await fetch('/warmup', { method: 'POST' });
+                 const response = await fetch('/documents');
                  const data = await response.json();
                  
-                 if (data.success && data.allServicesReady) {
-                     isServicesReady = true;
-                     uploadStatus.innerHTML = '<div style="color: #7ee787;">✅ Services ready! You can upload documents.</div>';
-                     uploadStatus.className = 'upload-status success';
+                 if (data.success) {
+                     const count = data.documents.length;
+                     documentsCount.textContent = count === 1 ? '1 document' : count + ' documents';
                      
-                     // Enable button if file is selected
-                     const documentInput = document.getElementById('documentInput');
-                     if (documentInput.files[0]) {
-                         uploadBtn.disabled = false;
+                     if (count === 0) {
+                         documentsList.innerHTML = '<div class="no-documents">No documents uploaded yet. Upload your first document to get started!</div>';
+                     } else {
+                         documentsList.innerHTML = data.documents.map(doc => \`
+                             <div class="document-item">
+                                 <div class="document-info">
+                                     <div class="name" title="\${doc.name}">\${doc.name}</div>
+                                     <div class="type">\${doc.type.includes('pdf') ? 'PDF' : 'Word'}</div>
+                                     <div class="upload-date">\${new Date(doc.uploadDate).toLocaleDateString()}</div>
+                                     <div class="text-length">\${doc.textLength.toLocaleString()} chars</div>
+                                 </div>
+                                 <div class="actions">
+                                     <button class="delete-btn" onclick="deleteDocument('\${doc.id}')">
+                                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                             <path d="M3 6H5H21" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                             <path d="M8 6V4C8 3.46957 8.21071 2.96086 8.58579 2.58579C8.96086 2.21071 9.46957 2 10 2H14C14.5304 2 15.0391 2.21071 15.4142 2.58579C15.7893 2.96086 16 3.46957 16 4V6M19 6V20C19 20.5304 18.7893 21.0391 18.4142 21.4142C18.0391 21.7893 17.5304 22 17 22H7C6.46957 22 5.96086 21.7893 5.58579 21.4142C5.21071 21.0391 5 20.5304 5 20V6H19Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                         </svg>
+                                         Delete
+                                     </button>
+                                 </div>
+                             </div>
+                         \`).join('');
                      }
                  } else {
-                     throw new Error(data.error || 'Service warm-up failed');
+                     documentsList.innerHTML = '<div class="error">Failed to load documents</div>';
+                     documentsCount.textContent = '0 documents';
                  }
              } catch (error) {
-                 console.error('Service readiness check failed:', error);
-                 isServicesReady = false;
-                 
-                 uploadStatus.innerHTML = '<div style="color: #f85149;">❌ Service error: ' + error.message + '<br><button onclick="checkServiceReadiness()" style="background: #1f6feb; color: white; border: none; padding: 8px 16px; border-radius: 4px; margin-top: 8px; cursor: pointer;">Retry</button></div>';
-                 uploadStatus.className = 'upload-status error';
-                 
-                 // Always enable button even if services fail - let user try
-                 uploadBtn.disabled = false;
-             } finally {
-                 isWarmupInProgress = false;
+                 console.error('Error loading documents:', error);
+                 documentsList.innerHTML = '<div class="error">Error loading documents</div>';
+                 documentsCount.textContent = '0 documents';
              }
          }
          
-         function setupFileUpload() {
-             const uploadForm = document.getElementById('uploadForm');
-             const documentInput = document.getElementById('documentInput');
-             const uploadBtn = document.getElementById('uploadBtn');
-             const selectedFileName = document.getElementById('selectedFileName');
-             const uploadStatus = document.getElementById('uploadStatus');
+         function removeSelectedFile(event) {
+             // Prevent event bubbling to avoid triggering file input
+             if (event) {
+                 event.preventDefault();
+                 event.stopPropagation();
+             }
              
-             // Handle file selection
-             documentInput.addEventListener('change', function(e) {
-                 const file = e.target.files[0];
-                 if (file) {
-                     selectedFileName.textContent = file.name;
-                     // Only enable if services are ready OR if we're allowing uploads despite service issues
-                     uploadBtn.disabled = !isServicesReady && !isWarmupInProgress;
-                     uploadStatus.innerHTML = '';
-                 } else {
-                     selectedFileName.textContent = '';
-                     uploadBtn.disabled = true;
-                 }
-             });
-            
-                         // Handle form submission
-             uploadForm.addEventListener('submit', async function(e) {
-                 e.preventDefault();
-                 
-                 const file = documentInput.files[0];
-                 if (!file) return;
-                 
-                 // Check if services are ready
-                 if (!isServicesReady) {
-                     uploadStatus.innerHTML = '<div style="color: #f85149;">❌ Services not ready. Please wait for service check to complete.</div>';
-                     uploadStatus.className = 'upload-status error';
-                     return;
-                 }
-                 
-                 // Show uploading status
-                 uploadBtn.disabled = true;
-                 uploadBtn.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 2V6M12 18V22M4.93 4.93L7.76 7.76M16.24 16.24L19.07 19.07M2 12H6M18 12H22M4.93 19.07L7.76 16.24M16.24 7.76L19.07 4.93" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg> Processing...';
-                 
-                 const formData = new FormData();
-                 formData.append('document', file);
-                 
-                 try {
-                     const response = await fetch('/upload', {
-                         method: 'POST',
-                         body: formData
-                     });
-                     
-                     const data = await response.json();
-                     
-                     if (data.success) {
-                         uploadStatus.innerHTML = '✅ ' + data.message + '<br><strong>' + data.document.originalName + '</strong> processed successfully!<br>Text length: ' + data.document.textLength + ' characters, ' + data.document.chunks + ' chunks created.';
-                         uploadStatus.className = 'upload-status success';
-                         
-                         // Reset form
-                         uploadForm.reset();
-                         selectedFileName.textContent = '';
-                         uploadBtn.disabled = true;
-                         
-                         // Reload documents list
-                         loadDocuments();
-                     } else {
-                         throw new Error(data.error || 'Upload failed');
-                     }
-                 } catch (error) {
-                     console.error('Upload error:', error);
-                     uploadStatus.innerHTML = '❌ Upload failed: ' + error.message;
-                     uploadStatus.className = 'upload-status error';
-                 } finally {
-                     // Re-enable button based on current state
-                     if (documentInput.files[0] && isServicesReady) {
-                         uploadBtn.disabled = false;
-                     }
-                     uploadBtn.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M21 15V19C21 19.5304 20.7893 20.0391 20.4142 20.4142C20.0391 20.7893 19.5304 21 19 21H5C4.46957 21 3.96086 20.7893 3.58579 20.4142C3.21071 20.0391 3 19.5304 3 19V15" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M7 10L12 15L17 10" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 15V3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg> Upload Document';
-                 }
-             });
-        }
+             const documentInput = document.getElementById('documentInput');
+             const selectedFileInfo = document.getElementById('selectedFileInfo');
+             const fileInputLabel = document.getElementById('fileInputLabel');
+             const uploadBtn = document.getElementById('uploadBtn');
+             const uploadStatus = document.getElementById('uploadStatus');
+             const uploadContainer = document.getElementById('uploadContainer');
+             
+             // Reset file input
+             documentInput.value = '';
+             
+             // Reset drag-and-drop state
+             uploadContainer.classList.remove('drag-over');
+             
+             // Hide file info and show upload label
+             selectedFileInfo.style.display = 'none';
+             fileInputLabel.style.display = 'flex';
+             
+             // Disable upload button
+             uploadBtn.disabled = true;
+             
+             // Clear status
+             uploadStatus.innerHTML = '';
+             uploadStatus.className = 'upload-status';
+         }
         
-        async function loadDocuments() {
-            const documentsList = document.getElementById('documentsList');
-            
-            try {
-                const response = await fetch('/documents');
-                const data = await response.json();
-                
-                if (data.success) {
-                    if (data.documents.length === 0) {
-                        documentsList.innerHTML = '<div class="no-documents">No documents uploaded yet. Upload your first document to get started!</div>';
-                    } else {
-                        documentsList.innerHTML = data.documents.map(doc => \`
-                            <div class="document-item">
-                                <div class="document-info">
-                                    <div class="name" title="\${doc.name}">\${doc.name}</div>
-                                    <div class="type">\${doc.type.includes('pdf') ? 'PDF' : 'Word'}</div>
-                                    <div class="upload-date">\${new Date(doc.uploadDate).toLocaleDateString()}</div>
-                                    <div class="text-length">\${doc.textLength.toLocaleString()} chars</div>
-                                </div>
-                                <div class="actions">
-                                    <button class="delete-btn" onclick="deleteDocument('\${doc.id}')">
-                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                            <path d="M3 6H5H21" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                                            <path d="M8 6V4C8 3.46957 8.21071 2.96086 8.58579 2.58579C8.96086 2.21071 9.46957 2 10 2H14C14.5304 2 15.0391 2.21071 15.4142 2.58579C15.7893 2.96086 16 3.46957 16 4V6M19 6V20C19 20.5304 18.7893 21.0391 18.4142 21.4142C18.0391 21.7893 17.5304 22 17 22H7C6.46957 22 5.96086 21.7893 5.58579 21.4142C5.21071 21.0391 5 20.5304 5 20V6H19Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                                        </svg>
-                                        Delete
-                                    </button>
-                                </div>
-                            </div>
-                        \`).join('');
-                    }
-                } else {
-                    documentsList.innerHTML = '<div class="error">Failed to load documents</div>';
-                }
-            } catch (error) {
-                console.error('Error loading documents:', error);
-                documentsList.innerHTML = '<div class="error">Error loading documents</div>';
-            }
-        }
-        
-        async function deleteDocument(documentId) {
-            if (!confirm('Are you sure you want to delete this document? This action cannot be undone.')) {
-                return;
-            }
-            
-                         try {
+                 async function deleteDocument(documentId) {
+             if (!confirm('Are you sure you want to delete this document? This action cannot be undone.')) {
+                 return;
+             }
+             
+                          try {
                  const response = await fetch('/documents/' + documentId, {
                      method: 'DELETE'
                  });
-                
-                const data = await response.json();
-                
-                if (data.success) {
-                    // Reload documents list
-                    loadDocuments();
-                } else {
-                    alert('Failed to delete document: ' + (data.error || 'Unknown error'));
-                }
-            } catch (error) {
-                console.error('Error deleting document:', error);
-                alert('Error deleting document: ' + error.message);
-            }
-        }
-    </script>
+                 
+                 const data = await response.json();
+                 
+                 if (data.success) {
+                     // Reload documents list
+                     loadDocuments();
+                 } else {
+                     alert('Failed to delete document: ' + (data.error || 'Unknown error'));
+                 }
+             } catch (error) {
+                 console.error('Error deleting document:', error);
+                 alert('Error deleting document: ' + error.message);
+             }
+                  }
+     </script>
 </body>
 </html>`;
   
@@ -2429,25 +2763,48 @@ async function startServer() {
   try {
     console.log('🚀 Starting server initialization...');
     
-    // Run warm-up routine before starting services
+    // Run warm-up routine before starting services (non-blocking)
     console.log('🔥 Running service warm-up routine...');
-    const warmUpResults = await warmUpServices();
-    
-    // Check if all services are ready
-    if (!warmUpResults.azureOpenAI || !warmUpResults.azureSearch || !warmUpResults.searchIndex) {
-      console.error('❌ Service warm-up failed. Some services are not ready:');
-      console.error('📊 Warm-up results:', warmUpResults);
-      throw new Error('Service warm-up failed - some Azure services are not accessible');
+    let warmUpResults;
+    try {
+      warmUpResults = await warmUpServices();
+      console.log('📊 Initial warm-up results:', warmUpResults);
+    } catch (warmUpError) {
+      console.warn('⚠️ Initial warm-up failed, continuing with server startup:', warmUpError.message);
+      warmUpResults = { azureOpenAI: false, azureSearch: false, searchIndex: false };
     }
     
-    console.log('✅ All services are ready! Adding startup delay to ensure full readiness...');
+    // Check service readiness but don't block startup
+    const allServicesReady = warmUpResults.azureOpenAI && warmUpResults.azureSearch && warmUpResults.searchIndex;
     
-    // Add a startup delay to ensure all services are fully ready
-    const startupDelay = 5000; // 5 seconds
-    console.log(`⏳ Waiting ${startupDelay}ms for services to fully stabilize...`);
-    await new Promise(resolve => setTimeout(resolve, startupDelay));
-    
-    console.log('🚀 Services stabilized! Proceeding with bot initialization...');
+    if (allServicesReady) {
+      console.log('✅ All services are ready! Adding startup delay to ensure full readiness...');
+      
+      // Add a startup delay to ensure all services are fully ready
+      const startupDelay = 5000; // 5 seconds
+      console.log(`⏳ Waiting ${startupDelay}ms for services to fully stabilize...`);
+      await new Promise(resolve => setTimeout(resolve, startupDelay));
+      
+      console.log('🚀 Services stabilized! Proceeding with bot initialization...');
+    } else {
+      console.warn('⚠️ Some services are not ready, but continuing with server startup');
+      console.warn('📊 Service status:', warmUpResults);
+      console.warn('💡 Services will be retried in the background');
+      
+      // Start background retry for failed services
+      setTimeout(async () => {
+        console.log('🔄 Retrying failed services in background...');
+        try {
+          const retryResults = await warmUpServices();
+          console.log('📊 Background retry results:', retryResults);
+        } catch (error) {
+          console.warn('⚠️ Background retry failed:', error.message);
+        }
+      }, 10000); // Retry after 10 seconds
+      
+      // Start periodic health checks
+      startHealthCheck();
+    }
     
     await initializeBot();
     
@@ -2511,6 +2868,13 @@ async function startServer() {
 // Graceful shutdown
 process.on('SIGTERM', async () => {
   console.log('SIGTERM received, shutting down gracefully...');
+  
+  // Stop health check interval
+  if (healthCheckInterval) {
+    clearInterval(healthCheckInterval);
+    console.log('Health check interval stopped');
+  }
+  
   if (bot && isWebhookMode) {
     try {
       await bot.deleteWebhook();
@@ -2527,6 +2891,13 @@ process.on('SIGTERM', async () => {
 
 process.on('SIGINT', async () => {
   console.log('SIGINT received, shutting down gracefully...');
+  
+  // Stop health check interval
+  if (healthCheckInterval) {
+    clearInterval(healthCheckInterval);
+    console.log('Health check interval stopped');
+  }
+  
   if (bot && isWebhookMode) {
     try {
       await bot.deleteWebhook();

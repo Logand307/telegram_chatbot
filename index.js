@@ -1023,13 +1023,71 @@ app.get('/', (req, res) => {
              box-shadow: none;
          }
          
-         .upload-btn-text {
-             transition: all 0.3s ease;
-         }
-         
-         .upload-btn:disabled .upload-btn-text {
-             opacity: 0.6;
-         }
+                 .upload-btn-text {
+            transition: all 0.3s ease;
+        }
+        
+        .upload-btn:disabled .upload-btn-text {
+            opacity: 0.6;
+        }
+        
+        /* Processing animation styles */
+        .processing-text {
+            display: inline-block;
+        }
+        
+        .processing-dots {
+            display: inline-block;
+            animation: processingDots 1.5s infinite;
+        }
+        
+        @keyframes processingDots {
+            0%, 20% { content: "Processing"; }
+            40% { content: "Processing."; }
+            60% { content: "Processing.."; }
+            80%, 100% { content: "Processing..."; }
+        }
+        
+        .processing-icon {
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+        
+        .upload-btn.processing {
+            animation: processingPulse 2s ease-in-out infinite;
+        }
+        
+        @keyframes processingPulse {
+            0%, 100% { 
+                box-shadow: 0 4px 12px rgba(88, 166, 255, 0.3);
+                transform: translateY(0);
+            }
+            50% { 
+                box-shadow: 0 6px 20px rgba(88, 166, 255, 0.5);
+                transform: translateY(-1px);
+            }
+        }
+        
+        /* Pulsing ellipsis animation for chat thinking state */
+        .thinking-ellipsis {
+            display: inline-block;
+            animation: thinkingPulse 1.5s ease-in-out infinite;
+        }
+        
+        @keyframes thinkingPulse {
+            0%, 100% { 
+                opacity: 0.4;
+                transform: scale(1);
+            }
+            50% { 
+                opacity: 1;
+                transform: scale(1.1);
+            }
+        }
         
         .upload-status {
             margin-top: 20px;
@@ -1686,8 +1744,8 @@ app.get('/', (req, res) => {
                 messageInput.disabled = true;
                 document.querySelector('.chat-send-btn').disabled = true;
                 
-                // Show loading indicator
-                const loadingMessage = addMessage('Thinking...', 'bot');
+                // Show loading indicator with animated ellipsis
+                const loadingMessage = addMessage('Thinking...', 'bot', true);
                 
                 try {
                     // Send to backend
@@ -1748,21 +1806,28 @@ app.get('/', (req, res) => {
             });
         }
         
-        function addMessage(text, sender) {
+        function addMessage(text, sender, isThinking = false) {
             const chatMessages = document.getElementById('chatMessages');
             const messageDiv = document.createElement('div');
             messageDiv.className = 'message ' + sender + '-message';
             
             const timestamp = new Date().toLocaleTimeString();
             
+            let messageContent = text;
+            if (isThinking && text === 'Thinking...') {
+                messageContent = 'Thinking<span class="thinking-ellipsis">...</span>';
+            }
+            
             messageDiv.innerHTML = 
                 '<div class="message-content">' +
-                    '<div class="message-text">' + text + '</div>' +
+                    '<div class="message-text">' + messageContent + '</div>' +
                     '<div class="message-timestamp">' + timestamp + '</div>' +
                 '</div>';
             
             chatMessages.appendChild(messageDiv);
             chatMessages.scrollTop = chatMessages.scrollHeight;
+            
+            return messageDiv;
         }
         
         function formatUptime(seconds) {
@@ -1868,7 +1933,19 @@ app.get('/', (req, res) => {
                               
                               // Show uploading status
                               uploadBtn.disabled = true;
-                              uploadBtn.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 2V6M12 18V22M4.93 4.93L7.76 7.76M16.24 16.24L19.07 19.07M2 12H6M18 12H22M4.93 19.07L7.76 16.24M16.24 7.76L19.07 4.93" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="upload-btn-text">Processing...</span>';
+                              uploadBtn.classList.add('processing');
+                              uploadBtn.innerHTML = '<svg class="processing-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 2V6M12 18V22M4.93 4.93L7.76 7.76M16.24 16.24L19.07 19.07M2 12H6M18 12H22M4.93 19.07L7.76 16.24M16.24 7.76L19.07 4.93" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="upload-btn-text"><span class="processing-text">Processing</span><span class="processing-dots" id="processingDots">...</span></span>';
+                              
+                              // Start animated processing dots
+                              const processingDots = document.getElementById('processingDots');
+                              const processingStates = ['', '.', '..', '...'];
+                              let dotIndex = 0;
+                              const dotsInterval = setInterval(() => {
+                                  if (processingDots) {
+                                      processingDots.textContent = processingStates[dotIndex];
+                                      dotIndex = (dotIndex + 1) % processingStates.length;
+                                  }
+                              }, 500);
                               
                               const formData = new FormData();
                               formData.append('document', file);
@@ -1901,6 +1978,14 @@ app.get('/', (req, res) => {
                                   uploadStatus.innerHTML = '❌ Upload failed: ' + error.message;
                                   uploadStatus.className = 'upload-status error';
                               } finally {
+                                  // Clear the processing dots interval
+                                  if (typeof dotsInterval !== 'undefined') {
+                                      clearInterval(dotsInterval);
+                                  }
+                                  
+                                  // Remove processing class and reset button
+                                  uploadBtn.classList.remove('processing');
+                                  
                                   // Re-enable button based on current state
                                   if (documentInput.files[0]) {
                                       uploadBtn.disabled = false;

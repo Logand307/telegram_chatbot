@@ -551,8 +551,6 @@ app.get('/', (req, res) => {
              box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
              display: flex;
              flex-direction: column;
-             height: 800px;
-             max-height: 800px;
              position: relative;
          }
         
@@ -567,7 +565,6 @@ app.get('/', (req, res) => {
         .chat-container {
             border: 1px solid #30363d;
             border-radius: 8px;
-            overflow: hidden;
             background: #0d1117;
             flex: 1;
             display: flex;
@@ -575,32 +572,11 @@ app.get('/', (req, res) => {
             position: relative;
         }
         
-                 .chat-messages {
-             flex: 1;
-             overflow-y: auto;
-             padding: 20px;
-             background: #0d1117;
-             max-height: 700px;
-             height: 700px;
-         }
-         
-         .chat-messages::-webkit-scrollbar {
-             width: 8px;
-         }
-         
-         .chat-messages::-webkit-scrollbar-track {
-             background: #0d1117;
-             border-radius: 4px;
-         }
-         
-         .chat-messages::-webkit-scrollbar-thumb {
-             background: #30363d;
-             border-radius: 4px;
-         }
-         
-         .chat-messages::-webkit-scrollbar-thumb:hover {
-             background: #58a6ff;
-         }
+                         .chat-messages {
+            flex: 1;
+            padding: 20px;
+            background: #0d1117;
+        }
         
         .message {
             margin-bottom: 16px;
@@ -1127,23 +1103,7 @@ app.get('/', (req, res) => {
             padding: 16px;
         }
         
-        .documents-list::-webkit-scrollbar {
-            width: 8px;
-        }
-        
-        .documents-list::-webkit-scrollbar-track {
-            background: #0d1117;
-            border-radius: 4px;
-        }
-        
-        .documents-list::-webkit-scrollbar-thumb {
-            background: #30363d;
-            border-radius: 4px;
-        }
-        
-        .documents-list::-webkit-scrollbar-thumb:hover {
-            background: #58a6ff;
-        }
+
         
         .document-item {
             background: #21262d;
@@ -1437,10 +1397,7 @@ app.get('/', (req, res) => {
             }
             
             .chat-interface {
-                height: 600px;
-                max-height: 600px;
-                min-height: 600px;
-                overflow: hidden;
+                /* Height constraints removed to allow growth */
                 padding: 16px;
             }
             
@@ -1456,23 +1413,7 @@ app.get('/', (req, res) => {
                 max-height: calc(600px - 80px); /* Account for header and padding */
             }
             
-            .features .feature-list::-webkit-scrollbar {
-                width: 6px; /* Thinner scrollbar for mobile */
-            }
-            
-            .features .feature-list::-webkit-scrollbar-track {
-                background: #0d1117;
-                border-radius: 4px;
-            }
-            
-            .features .feature-list::-webkit-scrollbar-thumb {
-                background: #30363d;
-                border-radius: 4px;
-            }
-            
-            .features .feature-list::-webkit-scrollbar-thumb:hover {
-                background: #58a6ff;
-            }
+
             
             .documents-list {
                 max-height: 300px;
@@ -1539,9 +1480,7 @@ app.get('/', (req, res) => {
             }
             
             .chat-messages {
-                height: 600px;
-                max-height: 600px;
-                min-height: 600px;
+                /* Height constraints removed to allow growth */
             }
             
             .chat-input-container {
@@ -1561,14 +1500,7 @@ app.get('/', (req, res) => {
                 font-size: 0.95rem;
             }
             
-            /* Mobile scrollbar fixes */
-            .chat-messages::-webkit-scrollbar {
-                width: 6px; /* Thinner scrollbar for mobile */
-            }
-            
-            .documents-list::-webkit-scrollbar {
-                width: 6px; /* Thinner scrollbar for mobile */
-            }
+            /* Mobile scrollbar fixes removed */
             
             /* Mobile upload status text overflow fixes */
             .upload-status {
@@ -1667,45 +1599,17 @@ app.get('/', (req, res) => {
                 max-height: calc(600px - 80px); /* Account for header and padding */
             }
             
-            .features .feature-list::-webkit-scrollbar {
-                width: 6px; /* Thinner scrollbar for mobile */
-            }
-            
-            .features .feature-list::-webkit-scrollbar-track {
-                background: #0d1117;
-                border-radius: 4px;
-            }
-            
-            .features .feature-list::-webkit-scrollbar-thumb {
-                background: #30363d;
-                border-radius: 4px;
-            }
-            
-            .features .feature-list::-webkit-scrollbar-thumb:hover {
-                background: #58a6ff;
-            }
+
             
             .chat-interface {
-                height: 600px;
-                min-height: 600px;
-                max-height: 600px;
-                overflow: hidden;
+                /* Height constraints removed to allow growth */
             }
             
             .chat-messages {
-                height: 600px;
-                max-height: 600px;
-                min-height: 600px;
+                /* Height constraints removed to allow growth */
             }
             
-            /* Mobile scrollbar fixes */
-            .chat-messages::-webkit-scrollbar {
-                width: 6px; /* Thinner scrollbar for mobile */
-            }
-            
-            .documents-list::-webkit-scrollbar {
-                width: 6px; /* Thinner scrollbar for mobile */
-            }
+            /* Mobile scrollbar fixes removed */
             
             /* Mobile upload status text overflow fixes */
             .upload-status {
